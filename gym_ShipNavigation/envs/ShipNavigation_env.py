@@ -9,7 +9,7 @@ from gym.utils import seeding
 
 """
 
-The objective of this environment is control a ship to reach a target
+The objective of this environment is to land a rocket on a ship.
 
 STATE VARIABLES
 The state consists of the following variables:
@@ -31,36 +31,47 @@ Continuous control inputs are:
 """
 
 CONTINUOUS = False
-FPS = 10
+FPS = 60
+SCALE_S = 0.15  # Temporal Scaling, lower is faster - adjust forces appropriately
+INITIAL_RANDOM = 0.01  # Random scaling of initial velocity, higher is more difficult
 
 START_HEIGHT = 100.0
 START_SPEED = 1.0
 
-# THRUSTER
-THRUSTER_MIN_THROTTLE = 0.4 # [%]
-THRUSTER_MAX_ANGLE = 0.4    # [rad]
-THRUSTER_MAX_FORCE = 1e5    # [N]
+# ROCKET
+MIN_THROTTLE = 0.4
+GIMBAL_THRESHOLD = 0.4
+MAIN_ENGINE_POWER = 1600 * SCALE_S
+SIDE_ENGINE_POWER = 100 / FPS * SCALE_S
 
-
-THRUSTER_HEIGHT = 2  # [m]
-THRUSTER_WIDTH = 0.8 # [m]
+ROCKET_WIDTH = 3.66 * SCALE_S
+ROCKET_HEIGHT = ROCKET_WIDTH / 3.7 * 11.9
+ENGINE_HEIGHT = ROCKET_WIDTH * 0.8
+ENGINE_WIDTH = ENGINE_HEIGHT * 0.3
+THRUSTER_HEIGHT = ROCKET_HEIGHT * 1.
 
 # SHIP
-SHIP_HEIGHT = 20    # [m]
-SHIP_WIDTH = 2      # [m]
+SHIP_HEIGHT = ROCKET_WIDTH
+SHIP_WIDTH = SHIP_HEIGHT * 40
 
 # VIEWPORT
-VIEWPORT_H = 900    # [pixels]
-VIEWPORT_W = 1600   # [pixels]
-
-SCALE = 1 # [m/pixel]
+VIEWPORT_H = 900
+VIEWPORT_W = 1600
+H = 7. * START_HEIGHT * SCALE_S
+W = float(VIEWPORT_W) / VIEWPORT_H * H
 
 # ROCK
-ROCK_RADIUS = 20
+ROCK_RADIUS = 0.02*W
 
 #LIDAR
-LIDAR_RANGE   = 200
-LIDAR_NB_RAY = 8;
+LIDAR_RANGE   = 160/SCALE_S
+LIDAR_NB_RAY = 16;
+
+MEAN = np.array([-0.034, -0.15, -0.016, 0.0024, 0.0024, 0.137,
+                 - 0.02, -0.01, -0.8, 0.002])
+VAR = np.sqrt(np.array([0.08, 0.33, 0.0073, 0.0023, 0.0023, 0.8,
+                        0.085, 0.0088, 0.063, 0.076]))
+
 
 
 class ShipNavigationEnv(gym.Env):
@@ -76,18 +87,22 @@ class ShipNavigationEnv(gym.Env):
 
         self.world = Box2D.b2World(gravity=(0,0))
         self.water = None
-        self.thruster = None
+        self.lander = None
+        self.engine = None
         self.ship = None
+        self.targetX = 0.0
+        self.targetY = 0.0
         self.target = None
-        self.lidar = None
-        self.throttle = 0
-        self.thruster_angle = 0.0
         
         high = np.ones(2+LIDAR_NB_RAY, dtype=np.float32)
         low = -high
 
         self.observation_space = spaces.Box(low, high, dtype=np.float32)
-        self.action_space = spaces.Discrete(3)
+
+        if CONTINUOUS:
+            self.action_space = spaces.Box(-1.0, +1.0, (3,), dtype=np.float32)
+        else:
+            self.action_space = spaces.Discrete(3)
 
         self.reset()
 
@@ -96,29 +111,28 @@ class ShipNavigationEnv(gym.Env):
         return [seed]
 
     def _destroy(self):
-        self.world.DestroyBody(self.ship)
-        self.world.DestroyBody(self.thruster)
-        self.world.DestroyBody(self.target)
+        if not self.lander:
+            return
+        self.world.DestroyBody(self.lander)
+        self.world.DestroyBody(self.target)     
+        self.lander = None
 
     def reset(self):
-        print('reset env')
         self._destroy()
         self.game_over = False
         self.prev_shaping = None
         self.throttle = 0
-        self.rudder_angle = 0.0
+        self.gimbal = 0.0
         self.stepnumber = 0
+        self.lidar_render = 0
 
-        initial_x = np.random.uniform( 2*SHIP_HEIGHT, VIEWPORT_W-2*SHIP_HEIGHT)
-        initial_y = np.random.uniform( 2*SHIP_HEIGHT, VIEWPORT_H-2*SHIP_HEIGHT)
-        initial_heading = np.random.uniform(0, math.pi)
+        initial_x = np.random.uniform( 2*ROCKET_HEIGHT, W-2*ROCKET_HEIGHT)
+        initial_y = np.random.uniform( 2*ROCKET_HEIGHT, H-2*ROCKET_HEIGHT)
         
-        targetX = np.random.uniform( 10*SHIP_HEIGHT, W-10*SHIP_HEIGHT)
-        targetY = np.random.uniform( 10*SHIP_HEIGHT, H-10*SHIP_HEIGHT)
-        
-        
+        self.targetX = np.random.uniform( 10*ROCKET_HEIGHT, W-10*ROCKET_HEIGHT)
+        self.targetY = np.random.uniform( 10*ROCKET_HEIGHT, H-10*ROCKET_HEIGHT)
         self.target = self.world.CreateStaticBody(
-                position = (targetX,targetY),
+                position = (self.targetX,self.targetY),
                 angle = 0.0,
                 fixtures = fixtureDef(
                         shape = polygonShape(vertices = ((ROCK_RADIUS,0),
@@ -128,15 +142,15 @@ class ShipNavigationEnv(gym.Env):
                                         ))
         self.target.color1 = rgb(255,0,0)
         
-        self.ship = self.world.CreateDynamicBody(
+        self.lander = self.world.CreateDynamicBody(
             position=(initial_x, initial_y),
-            angle=initial_heading,
+            angle=0.0,
             fixtures=fixtureDef(
-                shape=polygonShape(vertices=((-SHIP_WIDTH / 2, 0),
-                                             (+SHIP_WIDTH / 2, 0),
-                                             (SHIP_WIDTH / 2, +SHIP_HEIGHT),
-                                             (0, +SHIP_HEIGHT*1.2),
-                                             (-SHIP_WIDTH / 2, +SHIP_HEIGHT))),
+                shape=polygonShape(vertices=((-ROCKET_WIDTH / 2, 0),
+                                             (+ROCKET_WIDTH / 2, 0),
+                                             (ROCKET_WIDTH / 2, +ROCKET_HEIGHT),
+                                             (0, +ROCKET_HEIGHT*1.2),
+                                             (-ROCKET_WIDTH / 2, +ROCKET_HEIGHT))),
                 density=1.0,
                 categoryBits=0x0010,
                 maskBits=0x001,
@@ -147,11 +161,15 @@ class ShipNavigationEnv(gym.Env):
 
         # self.lander.angularDamping = 0.9
 
-        self.ship.color1 = rgb(230, 230, 230)
-        self.ship.linearVelocity = 0
-        self.ship.angularVelocity = 0
+        self.lander.color1 = rgb(230, 230, 230)
 
-        self.drawlist = [self.ship,self.target]
+        self.lander.linearVelocity = (
+            -self.np_random.uniform(0, INITIAL_RANDOM) * START_SPEED * (initial_x - W / 2) / W,
+            -START_SPEED)
+
+        self.lander.angularVelocity = (1 + INITIAL_RANDOM) * np.random.uniform(-1, 1)
+
+        self.drawlist = [self.lander,self.target]
         
         class LidarCallback(Box2D.b2.rayCastCallback):
             def ReportFixture(self, fixture, point, normal, fraction):
@@ -162,30 +180,40 @@ class ShipNavigationEnv(gym.Env):
                 return 0
         self.lidar = [LidarCallback() for _ in range(LIDAR_NB_RAY)]
         
-        return self.step(2)[0]
+        
+        if CONTINUOUS:
+            return self.step([0, 0, 0])[0]
+        else:
+            return self.step(2)[0]
 
     def step(self, action):
 
-        if action == 0:
-            self.thruster_angle += 0.01
-        elif action == 1:
-            self.thruster_angle -= 0.01
+        self.force_dir = 0
 
-        self.thruster_angle = np.clip(self.gimbal, -THRUSTER_MAX_ANGLE, THRUSTER_MAX_ANGLE)
+        if CONTINUOUS:
+            np.clip(action, -1, 1)
+            self.gimbal += action[0] * 0.15 / FPS
+        else:
+            if action == 0:
+                self.gimbal += 0.01
+            elif action == 1:
+                self.gimbal -= 0.01
+
+        self.gimbal = np.clip(self.gimbal, -GIMBAL_THRESHOLD, GIMBAL_THRESHOLD)
         self.throttle = np.clip(self.throttle, 0.0, 1.0)
         self.power = 0.1
 
         # main engine force
         force_pos = (self.lander.position[0], self.lander.position[1])
-        force = (-np.sin(self.ship.angle + self.thruster_angle) * THRUSTER_MAX_FORCE,
-                 np.cos(self.ship.angle + self.thruster_angle) * THRUSTER_MAX_FORCE )
+        force = (-np.sin(self.lander.angle + self.gimbal) * MAIN_ENGINE_POWER * (self.power),
+                 np.cos(self.lander.angle + self.gimbal) * MAIN_ENGINE_POWER * (self.power))
         self.lander.ApplyForce(force=force, point=force_pos, wake=False)
         self.world.Step(1.0 / FPS, 60, 60)
         
-        pos = self.ship.position
-        angle = self.ship.angle+np.pi/2
-        vel_l = np.array(self.ship.linearVelocity)
-        vel_a = self.ship.angularVelocity
+        pos = self.lander.position
+        angle = self.lander.angle+np.pi/2
+        vel_l = np.array(self.lander.linearVelocity)
+        vel_a = self.lander.angularVelocity
 
         #LIDAR measurements
         for i in range(LIDAR_NB_RAY):
@@ -201,8 +229,8 @@ class ShipNavigationEnv(gym.Env):
     #- angular velocity
     #- gimbal angle
         norm_pos = np.max((W,H))
-        x_distance = (self.target.pos.x - pos.x)/norm_pos
-        y_distance = (self.target.pos.y - pos.y)/norm_pos
+        x_distance = (self.targetX - pos.x)/norm_pos
+        y_distance = (self.targetY - pos.y)/norm_pos
         distance = np.linalg.norm((x_distance, y_distance))
         u = x_distance*np.cos(angle) + y_distance*np.sin(angle)
         v = -x_distance*np.sin(angle) + y_distance*np.cos(angle)
@@ -264,10 +292,6 @@ class ShipNavigationEnv(gym.Env):
         if self.viewer is None:
 
             self.viewer = rendering.Viewer(VIEWPORT_W, VIEWPORT_H)
-            
-            W = VIEWPORT_W
-            H = VIEWPORT_H
-            
             self.viewer.set_bounds(0, W, 0, H)
 
             sky = rendering.FilledPolygon(((0, 0), (0, H), (W, H), (W, 0)))
@@ -276,19 +300,24 @@ class ShipNavigationEnv(gym.Env):
             self.sky_color_half_transparent = np.array((np.array(self.sky_color) + rgb(255, 255, 255))) / 2
             self.viewer.add_geom(sky)
 
-            self.shiptrans = rendering.Transform()
+            self.rockettrans = rendering.Transform()
 
-            thruster = rendering.FilledPolygon(((-THRUSTER_WIDTH / 2, 0),
-                                              (THRUSTER_WIDTH / 2, 0),
-                                              (THRUSTER_WIDTH / 2, -THRUSTER_HEIGHT),
-                                              (-THRUSTER_WIDTH / 2, -THRUSTER_HEIGHT)))
-            self.thrustertrans = rendering.Transform()
-            thruster.add_attr(self.thrustertrans)
-            thruster.add_attr(self.shiptrans)
-            thruster.set_color(.4, .4, .4)
-            self.viewer.add_geom(thruster)
+            engine = rendering.FilledPolygon(((-ENGINE_WIDTH / 2, 0),
+                                              (ENGINE_WIDTH / 2, 0),
+                                              (ENGINE_WIDTH / 2, -ENGINE_HEIGHT),
+                                              (-ENGINE_WIDTH / 2, -ENGINE_HEIGHT)))
+            self.enginetrans = rendering.Transform()
+            engine.add_attr(self.enginetrans)
+            engine.add_attr(self.rockettrans)
+            engine.set_color(.4, .4, .4)
+            self.viewer.add_geom(engine)
             
         #LIDAR RENDER
+        #self.lidar_render = (self.lidar_render+1) % 100
+        #i = self.lidar_render
+        #if i < 2*len(self.lidar):
+        #    l = self.lidar[i] if i < len(self.lidar) else self.lidar[len(self.lidar)-i-1]
+        #    self.viewer.draw_polyline( [l.p1, l.p2], color=(1,0,0), linewidth=1 )
         for lid in self.lidar:
             self.viewer.draw_polyline( [lid.p1, lid.p2], color=(1,0,0), linewidth=1 )
             
@@ -298,9 +327,9 @@ class ShipNavigationEnv(gym.Env):
                 path = [trans * v for v in f.shape.vertices]
                 self.viewer.draw_polygon(path, color=obj.color1)
 
-        self.shiptrans.set_translation(*self.ship.position)
-        self.shiptrans.set_rotation(self.ship.angle)
-        self.thrustertrans.set_rotation(self.thruster_angle)
+        self.rockettrans.set_translation(*self.lander.position)
+        self.rockettrans.set_rotation(self.lander.angle)
+        self.enginetrans.set_rotation(self.gimbal)
 
         return self.viewer.render(return_rgb_array=mode == 'rgb_array')
 
