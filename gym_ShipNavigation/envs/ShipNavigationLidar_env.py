@@ -24,14 +24,10 @@ Discrete control inputs are:
     - gimbal left
     - gimbal right
     - no action
-    
-Continuous control inputs are:
-    - gimbal (left/right)
 
 """
 
-CONTINUOUS = False
-FPS = 10
+FPS = 60
 
 START_HEIGHT = 100.0
 START_SPEED = 1.0
@@ -50,8 +46,8 @@ SHIP_HEIGHT = 20    # [m]
 SHIP_WIDTH = 2      # [m]
 
 # VIEWPORT
-VIEWPORT_H = 900    # [pixels]
-VIEWPORT_W = 1600   # [pixels]
+VIEWPORT_H = 1800    # [pixels]
+VIEWPORT_W = 3200   # [pixels]
 
 SCALE = 1 # [m/pixel]
 
@@ -70,12 +66,12 @@ class ShipNavigationLidarEnv(gym.Env):
     }
 
     def __init__(self):
+        print('init2')
         self._seed()
         self.viewer = None
         self.episode_number = 0
 
         self.world = Box2D.b2World(gravity=(0,0))
-        self.water = None
         self.thruster = None
         self.ship = None
         self.target = None
@@ -96,9 +92,11 @@ class ShipNavigationLidarEnv(gym.Env):
         return [seed]
 
     def _destroy(self):
+        if not self.ship:
+            return
         self.world.DestroyBody(self.ship)
-        self.world.DestroyBody(self.thruster)
         self.world.DestroyBody(self.target)
+        self.ship = None
 
     def reset(self):
         print('reset env')
@@ -113,8 +111,8 @@ class ShipNavigationLidarEnv(gym.Env):
         initial_y = np.random.uniform( 2*SHIP_HEIGHT, VIEWPORT_H-2*SHIP_HEIGHT)
         initial_heading = np.random.uniform(0, math.pi)
         
-        targetX = np.random.uniform( 10*SHIP_HEIGHT, W-10*SHIP_HEIGHT)
-        targetY = np.random.uniform( 10*SHIP_HEIGHT, H-10*SHIP_HEIGHT)
+        targetX = np.random.uniform( 10*SHIP_HEIGHT, VIEWPORT_W-10*SHIP_HEIGHT)
+        targetY = np.random.uniform( 10*SHIP_HEIGHT, VIEWPORT_H-10*SHIP_HEIGHT)
         
         
         self.target = self.world.CreateStaticBody(
@@ -148,7 +146,7 @@ class ShipNavigationLidarEnv(gym.Env):
         # self.lander.angularDamping = 0.9
 
         self.ship.color1 = rgb(230, 230, 230)
-        self.ship.linearVelocity = 0
+        self.ship.linearVelocity = (0.0,0.0)
         self.ship.angularVelocity = 0
 
         self.drawlist = [self.ship,self.target]
@@ -171,15 +169,14 @@ class ShipNavigationLidarEnv(gym.Env):
         elif action == 1:
             self.thruster_angle -= 0.01
 
-        self.thruster_angle = np.clip(self.gimbal, -THRUSTER_MAX_ANGLE, THRUSTER_MAX_ANGLE)
+        self.thruster_angle = np.clip(self.thruster_angle, -THRUSTER_MAX_ANGLE, THRUSTER_MAX_ANGLE)
         self.throttle = np.clip(self.throttle, 0.0, 1.0)
-        self.power = 0.1
 
         # main engine force
-        force_pos = (self.lander.position[0], self.lander.position[1])
+        force_pos = (self.ship.position[0], self.ship.position[1])
         force = (-np.sin(self.ship.angle + self.thruster_angle) * THRUSTER_MAX_FORCE,
                  np.cos(self.ship.angle + self.thruster_angle) * THRUSTER_MAX_FORCE )
-        self.lander.ApplyForce(force=force, point=force_pos, wake=False)
+        self.ship.ApplyForce(force=force, point=force_pos, wake=False)
         self.world.Step(1.0 / FPS, 60, 60)
         
         pos = self.ship.position
@@ -200,9 +197,9 @@ class ShipNavigationLidarEnv(gym.Env):
     #- target bearing
     #- angular velocity
     #- gimbal angle
-        norm_pos = np.max((W,H))
-        x_distance = (self.target.pos.x - pos.x)/norm_pos
-        y_distance = (self.target.pos.y - pos.y)/norm_pos
+        norm_pos = np.max((VIEWPORT_W,VIEWPORT_H))
+        x_distance = (self.target.position[0] - pos.x)/norm_pos
+        y_distance = (self.target.position[1] - pos.y)/norm_pos
         distance = np.linalg.norm((x_distance, y_distance))
         u = x_distance*np.cos(angle) + y_distance*np.sin(angle)
         v = -x_distance*np.sin(angle) + y_distance*np.cos(angle)
@@ -213,7 +210,7 @@ class ShipNavigationLidarEnv(gym.Env):
             distance,
             bearing,
             vel_a,
-            (self.gimbal / GIMBAL_THRESHOLD)
+            (self.thruster_angle / THRUSTER_MAX_ANGLE)
         ]
         state += [l.fraction for l in self.lidar]
         # # print state
@@ -225,7 +222,7 @@ class ShipNavigationLidarEnv(gym.Env):
         # state variables for reward
         
         
-        outside = (abs(pos.x - W*0.5) > W*0.49) or (abs(pos.y - H*0.5) > H*0.49)
+        outside = (abs(pos.x - VIEWPORT_W*0.5) > VIEWPORT_W*0.49) or (abs(pos.y - VIEWPORT_H*0.5) > VIEWPORT_H*0.49)
 
         hit_target = (distance < (2*ROCK_RADIUS)/norm_pos)
         done = False
@@ -233,6 +230,7 @@ class ShipNavigationLidarEnv(gym.Env):
         reward = -1.0/FPS
 
         if outside:
+            print('outside')
             self.game_over = True
             reward = -1 # high negative reward when outside of playground
         elif hit_target:
@@ -265,16 +263,13 @@ class ShipNavigationLidarEnv(gym.Env):
 
             self.viewer = rendering.Viewer(VIEWPORT_W, VIEWPORT_H)
             
-            W = VIEWPORT_W
-            H = VIEWPORT_H
-            
-            self.viewer.set_bounds(0, W, 0, H)
+            #self.viewer.set_bounds(0, 10*W, 0, 10*H)
 
-            sky = rendering.FilledPolygon(((0, 0), (0, H), (W, H), (W, 0)))
-            self.sky_color = rgb(126, 150, 233)
-            sky.set_color(*self.sky_color)
-            self.sky_color_half_transparent = np.array((np.array(self.sky_color) + rgb(255, 255, 255))) / 2
-            self.viewer.add_geom(sky)
+            water = rendering.FilledPolygon(((0, 0), (0, VIEWPORT_H), (VIEWPORT_W, VIEWPORT_H), (VIEWPORT_W, 0)))
+            self.water_color = rgb(126, 150, 233)
+            water.set_color(*self.water_color)
+            self.water_color_half_transparent = np.array((np.array(self.water_color) + rgb(255, 255, 255))) / 2
+            self.viewer.add_geom(water)
 
             self.shiptrans = rendering.Transform()
 
