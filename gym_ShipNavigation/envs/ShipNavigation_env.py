@@ -81,6 +81,7 @@ class ShipNavigationEnv(gym.Env):
     }
 
     def __init__(self):
+        print('init')
         self._seed()
         self.viewer = None
         self.episode_number = 0
@@ -118,6 +119,7 @@ class ShipNavigationEnv(gym.Env):
         self.lander = None
 
     def reset(self):
+        print('reset')
         self._destroy()
         self.game_over = False
         self.prev_shaping = None
