@@ -60,7 +60,7 @@ SHIP_INERTIA = 280e3 # [kg.m²]
 Vmax = 10 # [m/s]
 K_Nr = (THRUSTER_MAX_FORCE*SHIP_HEIGHT*math.sin(THRUSTER_MAX_ANGLE)/(2*2*math.pi)) # [N.m/(rad/s)]
 K_Xu = THRUSTER_MAX_FORCE/Vmax # [N/(m/s)]
-K_Yv = K_Xu # [N/(m/s)]
+K_Yv = 10*K_Xu # [N/(m/s)]
 
 
 # ROCK
@@ -73,7 +73,6 @@ class ShipNavigationWithModelEnv(gym.Env):
     }
 
     def __init__(self):
-        print('init2')
         self._seed()
         self.viewer = None
         self.episode_number = 0
@@ -118,13 +117,12 @@ class ShipNavigationWithModelEnv(gym.Env):
         
         targetX = np.random.uniform( 10*SHIP_HEIGHT, SEA_W-10*SHIP_HEIGHT)
         targetY = np.random.uniform( 10*SHIP_HEIGHT, SEA_H-10*SHIP_HEIGHT)
-        
-        
+          
         self.target = self.world.CreateStaticBody(
                 position = (targetX,targetY),
                 angle = 0.0,
                 fixtures = fixtureDef(
-                        shape = circleShape(pos=(targetX,targetY),radius = ROCK_RADIUS)))
+                        shape = circleShape(pos=(0,0),radius = ROCK_RADIUS)))
         self.target.color1 = rgb(255,0,0)
         self.target.color2 = rgb(0,255,0)
         
@@ -133,10 +131,10 @@ class ShipNavigationWithModelEnv(gym.Env):
             angle=initial_heading,
             fixtures=fixtureDef(
                 shape=polygonShape(vertices=((-SHIP_WIDTH / 2, 0),
-                                             (+SHIP_WIDTH / 2, 0),
-                                             (SHIP_WIDTH / 2, +SHIP_HEIGHT),
-                                             (0, +SHIP_HEIGHT*1.2),
-                                             (-SHIP_WIDTH / 2, +SHIP_HEIGHT))),
+                                              (+SHIP_WIDTH / 2, 0),
+                                              (SHIP_WIDTH / 2, +SHIP_HEIGHT),
+                                              (0, +SHIP_HEIGHT*1.2),
+                                              (-SHIP_WIDTH / 2, +SHIP_HEIGHT))),
                 density=0.0,
                 categoryBits=0x0010,
                 maskBits=0x001,
@@ -149,21 +147,12 @@ class ShipNavigationWithModelEnv(gym.Env):
         self.ship.linearVelocity = (0.0,0.0)
         self.ship.angularVelocity = 0
         
-        self.ship.localCenter.x = 0
-        self.ship.localCenter.y = SHIP_HEIGHT/2
-        
-        # newMassData = self.ship.massData
-        # newMassData.mass = SHIP_MASS
-        # newMassData.I = SHIP_INERTIA
-        # newMassData.center = (0.0,SHIP_HEIGHT/2)
-        try:
-            self.ship.mass = SHIP_MASS
-        except AssertionError:
-            print(f'Assertion error while writing ship mass data. written data is mass = {self.ship.mass:.0f} kg\tinertia = {self.ship.inertia:.0f} kg.m² \t center X = {self.ship.localCenter[0]:.0f} m \t center Y = {self.ship.localCenter[1]:.0f} m')
-        try:
-            self.ship.inertia = SHIP_INERTIA
-        except AssertionError:
-            print(f'Assertion error while writing ship inertia data. written data is mass = {self.ship.mass:.0f} kg\tinertia = {self.ship.inertia:.0f} kg.m² \t center X = {self.ship.localCenter[0]:.0f} m \t center Y = {self.ship.localCenter[1]:.0f} m')
+         
+        newMassData = self.ship.massData
+        newMassData.mass = SHIP_MASS
+        newMassData.center = (0.0,SHIP_HEIGHT/2)
+        newMassData.I = SHIP_INERTIA + SHIP_MASS*(newMassData.center[0]**2+newMassData.center[1]**2) # inertia is defined at origin location not localCenter
+        self.ship.massData = newMassData
         
         
         self.drawlist = [self.ship, self.target]
@@ -199,8 +188,9 @@ class ShipNavigationWithModelEnv(gym.Env):
         torque_damping = -self.ship.angularVelocity *K_Nr
 
         self.ship.ApplyTorque(torque=torque_damping,wake=False)
-        self.ship.ApplyForce(force=force_thruster, point=force_pos, wake=False)
+        self.ship.ApplyForce(force=force_thruster, point=self.ship.position, wake=False)
         self.ship.ApplyForce(force=force_damping, point=COGpos, wake=False)
+        
         
         self.world.Step(1.0 / FPS, 60, 60)
         
@@ -243,7 +233,7 @@ class ShipNavigationWithModelEnv(gym.Env):
         
         
         outside = (abs(pos.x - SEA_W*0.5) > SEA_W*0.49) or (abs(pos.y - SEA_H*0.5) > SEA_H*0.49)
-
+        print('distance = {} \ttarget pos X = {}\tpos Y = {}'.format(distance,self.target.position[0] ,self.target.position[1] ))
         hit_target = (distance < (2*ROCK_RADIUS)/norm_pos)
         done = False
         
@@ -300,10 +290,8 @@ class ShipNavigationWithModelEnv(gym.Env):
             
             thruster.add_attr(self.thrustertrans) # add thruster angle
             thruster.add_attr(self.shiptrans) # add ship angle and ship position
-            #self.toto = rendering.Transform(translation=(20,40),rotation=0) # add 20 meters east and 40 meters north for debug purpose
-            #thruster.add_attr(self.toto)
-            #thruster.set_color(.4, .4, .4)
             thruster.set_color(1.0, 1.0, 0.0)
+            
             self.viewer.add_geom(thruster)
             
             COG = rendering.FilledPolygon(((-THRUSTER_WIDTH / 0.2, 0),
