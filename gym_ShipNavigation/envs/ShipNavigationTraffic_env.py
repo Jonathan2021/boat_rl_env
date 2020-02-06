@@ -134,7 +134,7 @@ class ShipNavigationWithTrafficEnv(gym.Env):
         self.target.color2 = rgb(0,255,0)
         
         for i in range(n_shipsInTraffic):
-            self.traffic.append(self.world.CreateDynamicBody(
+            ship =self.world.CreateDynamicBody(
                 position=(np.random.uniform( 2*SHIP_HEIGHT, SEA_W-2*SHIP_HEIGHT), np.random.uniform( 2*SHIP_HEIGHT, SEA_H-2*SHIP_HEIGHT)),
             angle=np.random.uniform( 0, 2*math.pi),
             fixtures=fixtureDef(
@@ -150,9 +150,7 @@ class ShipNavigationWithTrafficEnv(gym.Env):
                 linearDamping=0,
                 angularDamping=0,
                 active = True
-                ))
-            
-        for ship in self.traffic:
+                )
             newMassData = ship.massData
             newMassData.mass = SHIP_MASS
             newMassData.center = (0.0,SHIP_HEIGHT/2)
@@ -161,6 +159,10 @@ class ShipNavigationWithTrafficEnv(gym.Env):
             ship.color1 = rgb(0, 0, 255)
             ship.linearVelocity = ship.GetWorldVector((0,np.random.uniform( 5, 20)))
             ship.angularVelocity = 0
+             
+            self.traffic.append(ship)
+            
+            
         
         self.ship = self.world.CreateDynamicBody(
             position=(initial_x, initial_y),
