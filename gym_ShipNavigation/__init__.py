@@ -12,3 +12,7 @@ register(
     id='ShipNav-v0',
     entry_point='gym_ShipNavigation.envs:ShipNavigationWithModelEnv',
 )
+register(
+    id='ShipNav-v1',
+    entry_point='gym_ShipNavigation.envs:ShipNavigationWithTrafficEnv',
+)
