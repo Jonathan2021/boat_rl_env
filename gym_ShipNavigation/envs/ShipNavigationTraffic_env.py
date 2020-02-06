@@ -230,6 +230,15 @@ class ShipNavigationWithTrafficEnv(gym.Env):
         self.ship.ApplyForce(force=force_damping, point=COGpos, wake=False)
         
         for ship in self.traffic:
+            # teleport ships that are out of map to the opposit position
+            if ship.position[0] < 0:
+                ship.position = (SEA_W,ship.position[1])
+            if ship.position[0] > SEA_W:
+                ship.position = (0,ship.position[1])
+            if ship.position[1] < 0:
+                ship.position = (ship.position[0],SEA_H)
+            if ship.position[1] > SEA_H:
+                ship.position = (ship.position[0],0)
             force_thruster = ship.GetWorldVector((0,THRUSTER_MAX_FORCE))
             ship.ApplyForce(force=force_thruster, point=ship.position, wake=False)
         
