@@ -66,6 +66,10 @@ K_Yv = 10*K_Xu # [N/(m/s)]
 # ROCK
 ROCK_RADIUS = 20
 
+
+#TRAFFIC
+n_shipsInTraffic = 200
+
 class ShipNavigationWithTrafficEnv(gym.Env):
     metadata = {
         'render.modes': ['human', 'rgb_array'],
@@ -82,7 +86,7 @@ class ShipNavigationWithTrafficEnv(gym.Env):
         self.target = None
         self.throttle = 0
         self.thruster_angle = 0.0
-        
+
         high = np.ones(2, dtype=np.float32)
         low = -high
 
@@ -100,6 +104,8 @@ class ShipNavigationWithTrafficEnv(gym.Env):
             return
         self.world.DestroyBody(self.ship)
         self.world.DestroyBody(self.target)
+        for ship in self.traffic:
+            self.world.DestroyBody(ship)
         self.ship = None
 
     def reset(self):
@@ -110,6 +116,7 @@ class ShipNavigationWithTrafficEnv(gym.Env):
         self.throttle = 0
         self.rudder_angle = 0.0
         self.stepnumber = 0
+        self.traffic = []
 
         initial_x = np.random.uniform( 2*SHIP_HEIGHT, SEA_W-2*SHIP_HEIGHT)
         initial_y = np.random.uniform( 2*SHIP_HEIGHT, SEA_H-2*SHIP_HEIGHT)
@@ -125,6 +132,35 @@ class ShipNavigationWithTrafficEnv(gym.Env):
                         shape = circleShape(pos=(0,0),radius = ROCK_RADIUS)))
         self.target.color1 = rgb(255,0,0)
         self.target.color2 = rgb(0,255,0)
+        
+        for i in range(n_shipsInTraffic):
+            self.traffic.append(self.world.CreateDynamicBody(
+                position=(np.random.uniform( 2*SHIP_HEIGHT, SEA_W-2*SHIP_HEIGHT), np.random.uniform( 2*SHIP_HEIGHT, SEA_H-2*SHIP_HEIGHT)),
+            angle=np.random.uniform( 0, 2*math.pi),
+            fixtures=fixtureDef(
+                shape=polygonShape(vertices=((-SHIP_WIDTH / 2, 0),
+                                              (+SHIP_WIDTH / 2, 0),
+                                              (SHIP_WIDTH / 2, +SHIP_HEIGHT),
+                                              (0, +SHIP_HEIGHT*1.2),
+                                              (-SHIP_WIDTH / 2, +SHIP_HEIGHT))),
+                density=0.0,
+                categoryBits=0x0010,
+                maskBits=0x001,
+                restitution=0.0),
+                linearDamping=0,
+                angularDamping=0,
+                active = True
+                ))
+            
+        for ship in self.traffic:
+            newMassData = ship.massData
+            newMassData.mass = SHIP_MASS
+            newMassData.center = (0.0,SHIP_HEIGHT/2)
+            newMassData.I = SHIP_INERTIA + SHIP_MASS*(newMassData.center[0]**2+newMassData.center[1]**2) # inertia is defined at origin location not localCenter
+            ship.massData = newMassData
+            ship.color1 = rgb(0, 0, 255)
+            ship.linearVelocity = ship.GetWorldVector((0,np.random.uniform( 5, 20)))
+            ship.angularVelocity = 0
         
         self.ship = self.world.CreateDynamicBody(
             position=(initial_x, initial_y),
@@ -155,7 +191,7 @@ class ShipNavigationWithTrafficEnv(gym.Env):
         self.ship.massData = newMassData
         
         
-        self.drawlist = [self.ship, self.target]
+        self.drawlist = [self.ship, self.target] + self.traffic
         
        
         return self.step(2)[0]
@@ -191,6 +227,9 @@ class ShipNavigationWithTrafficEnv(gym.Env):
         self.ship.ApplyForce(force=force_thruster, point=self.ship.position, wake=False)
         self.ship.ApplyForce(force=force_damping, point=COGpos, wake=False)
         
+        for ship in self.traffic:
+            force_thruster = ship.GetWorldVector((0,THRUSTER_MAX_FORCE))
+            ship.ApplyForce(force=force_thruster, point=ship.position, wake=False)
         
         self.world.Step(1.0 / FPS, 60, 60)
         
