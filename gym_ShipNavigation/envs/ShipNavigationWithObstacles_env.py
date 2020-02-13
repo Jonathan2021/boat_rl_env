@@ -10,7 +10,7 @@ import math
 import numpy as np
 import Box2D
 from Box2D.b2 import (edgeShape, circleShape, fixtureDef, polygonShape, revoluteJointDef, distanceJointDef,
-                      contactListener)
+                      contactListener, distance)
 import gym
 from gym import spaces
 from gym.utils import seeding
@@ -21,11 +21,22 @@ The objective of this environment is control a ship to reach a target
 
 STATE VARIABLES
 The state consists of the following variables:
-    - distance to target (ship's frame)
-    - target bearing
+    - ship's velocity on it's sway axis
+    - ship's velocity on its surge axis
     - angular velocity
-    - gimbal angle
-all state variables are roughly in the range [-1, 1]
+    - thruster angle normalized
+    - distance to target (ship's frame) normalized
+    - target bearing normalized
+    - distance to rock n°1 normalized
+    - bearing to rock n°1 normalized
+    - ...
+    - distance to rock n°k normalized
+    - bearing to rock n°k normalized
+    - ...
+    - distance to last rock normalized
+    - bearing to last rock normalized
+
+all state variables are roughly in the range [-1, 1] (distances are normalized)
     
 CONTROL INPUTS
 Discrete control inputs are:
@@ -55,10 +66,11 @@ SEA_H = 900    # [m]
 SEA_W = 1600   # [m]
 
 # ship model inspired by DP060
-SHIP_MASS = 0.01*27e3 # [kg]
+SHIP_MASS = 27e3 # [kg]
 SHIP_INERTIA = 280e3 # [kg.m²]
-Vmax = 100 # [m/s]
-K_Nr = (THRUSTER_MAX_FORCE*SHIP_HEIGHT*math.sin(THRUSTER_MAX_ANGLE)/(2*2*math.pi)) # [N.m/(rad/s)]
+Vmax = 30 # [m/s]
+Rmax = 1*np.pi #[rad/s]
+K_Nr = (THRUSTER_MAX_FORCE*SHIP_HEIGHT*math.sin(THRUSTER_MAX_ANGLE)/(2*Rmax)) # [N.m/(rad/s)]
 K_Xu = THRUSTER_MAX_FORCE/Vmax # [N/(m/s)]
 K_Yv = 10*K_Xu # [N/(m/s)]
 
@@ -66,8 +78,17 @@ K_Yv = 10*K_Xu # [N/(m/s)]
 # ROCK
 ROCK_RADIUS = 20
 
-n_Rocks = 25
+n_Rocks = 0
 
+def getDistanceBearing(ship,target):
+    x_distance = (target.position[0] - ship.position[0])
+    y_distance = (target.position[1] - ship.position[1])
+    distance = np.linalg.norm((x_distance, y_distance))
+    angle = -(ship.angle + np.pi/2)
+    u = x_distance*np.cos(angle) + y_distance*np.sin(angle)
+    v = -x_distance*np.sin(angle) + y_distance*np.cos(angle)
+    bearing = np.arctan2(v,u)
+    return (distance, bearing)
 
 class ShipNavigationWithObstaclesEnv(gym.Env):
     metadata = {
@@ -113,7 +134,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.game_over = False
         self.prev_shaping = None
         self.throttle = 0
-        self.rudder_angle = 0.0
+        self.thruster_angle = 0.0
         self.stepnumber = 0
         self.rocks = []
 
@@ -132,7 +153,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
             rock.color2 = rgb(41, 14, 9) # darker brown
             self.rocks.append(rock)
         
-        getDistToRockfield = lambda x,y: np.asarray([np.sqrt((rock.position.x - x)**2 + (rock.position.y - y)**2) for rock in self.rocks]).min()
+        getDistToRockfield = lambda x,y: np.asarray([np.sqrt((rock.position.x - x)**2 + (rock.position.y - y)**2) for rock in self.rocks]).min() if len(self.rocks) > 0 else np.inf # infinite distance if there is no rock field
         
         # create target randomly, but not overlapping an existing rock
         initial_x, initial_y = np.random.uniform( [2*SHIP_HEIGHT ,2*SHIP_HEIGHT], [SEA_W-2*SHIP_HEIGHT,SEA_H-2*SHIP_HEIGHT])
@@ -198,6 +219,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
 
     def step(self, action):
 
+        state = []
         if action == 0:
             self.thruster_angle += 0.01
         elif action == 1:
@@ -239,24 +261,21 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
     #- angular velocity
     #- gimbal angle
         norm_pos = np.max((SEA_W,SEA_H))
-        x_distance = (self.target.position[0] - pos.x)/norm_pos
-        y_distance = (self.target.position[1] - pos.y)/norm_pos
-        distance = np.linalg.norm((x_distance, y_distance))
-        u = x_distance*np.cos(angle) + y_distance*np.sin(angle)
-        v = -x_distance*np.sin(angle) + y_distance*np.cos(angle)
-        bearing = np.arctan2(v,u)/(np.pi)
-        #print("bearing = %0.3f u = %0.3f v = %0.3f" %(bearing,u,v))
         
-        state = [
-            distance,
-            bearing,
-            vel_a,
-            (self.thruster_angle / THRUSTER_MAX_ANGLE),
-            vel_l[0],
-            vel_l[1],
-            localVelocity[0],
-            localVelocity[1]
-        ]
+        distance_t, bearing_t = getDistanceBearing(self.ship,self.target)
+        
+        state += list(np.asarray(self.ship.GetLocalVector(self.ship.linearVelocity))/Vmax)
+        state.append(self.ship.angularVelocity/Rmax)
+        state.append(self.thruster_angle / THRUSTER_MAX_ANGLE)
+        state.append(distance_t/norm_pos)
+        state.append(bearing_t/np.pi)
+        
+        for rock in self.rocks:
+            distance, bearing = getDistanceBearing(self.ship,rock)
+            print("bearing = %0.3f deg distance = %0.3f m " %(bearing*180/np.pi,distance))
+            state.append(distance/norm_pos)
+            state.append(bearing/np.pi)
+            
         
         # # print state
         # if self.viewer is not None:
@@ -269,7 +288,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         
         outside = (abs(pos.x - SEA_W*0.5) > SEA_W*0.49) or (abs(pos.y - SEA_H*0.5) > SEA_H*0.49)
         #print('distance = {} \ttarget pos X = {}\tpos Y = {}'.format(distance,self.target.position[0] ,self.target.position[1] ))
-        hit_target = (distance < (2*ROCK_RADIUS)/norm_pos)
+        hit_target = (distance_t < (2*ROCK_RADIUS))
         done = False
         
         reward = -1.0/FPS
@@ -279,11 +298,11 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
             self.game_over = True
             reward = -1 # high negative reward when outside of playground
         elif hit_target:
-            print("target hit!!!",distance,(2*ROCK_RADIUS)/norm_pos)
+            print("target hit!!!",distance_t,(2*ROCK_RADIUS)/norm_pos)
             self.game_over = True
             reward = +1000  #high positive reward. hitting target is good
         else:   # general case, we're trying to reach target so being close should be rewarded
-            reward = (1-distance**0.4) + (0.5-np.absolute(bearing)**0.4)
+            reward = (1-(distance_t/norm_pos)**0.4) + (0.5-np.absolute(bearing_t/np.pi)**0.4)
             
         if self.game_over:
             print("game over")
