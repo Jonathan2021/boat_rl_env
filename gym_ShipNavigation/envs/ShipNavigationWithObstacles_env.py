@@ -117,12 +117,36 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.stepnumber = 0
         self.rocks = []
 
-        initial_x = np.random.uniform( 2*SHIP_HEIGHT, SEA_W-2*SHIP_HEIGHT)
-        initial_y = np.random.uniform( 2*SHIP_HEIGHT, SEA_H-2*SHIP_HEIGHT)
+        # create rock field randomly
+        for i in range(n_Rocks):
+            
+            rock =self.world.CreateStaticBody(
+                position=(np.random.uniform( 2*SHIP_HEIGHT, SEA_W-2*SHIP_HEIGHT), np.random.uniform( 2*SHIP_HEIGHT, SEA_H-2*SHIP_HEIGHT)),
+                angle=np.random.uniform( 0, 2*math.pi),
+                fixtures=fixtureDef(
+                    shape = circleShape(pos=(0,0),radius = ROCK_RADIUS),
+                categoryBits=0x0010,
+                maskBits=0x1111,
+                restitution=1.0))
+            rock.color1 = rgb(83, 43, 9) # brown
+            rock.color2 = rgb(41, 14, 9) # darker brown
+            self.rocks.append(rock)
+        
+        getDistToRockfield = lambda x,y: np.asarray([np.sqrt((rock.position.x - x)**2 + (rock.position.y - y)**2) for rock in self.rocks]).min()
+        
+        # create target randomly, but not overlapping an existing rock
+        initial_x, initial_y = np.random.uniform( [2*SHIP_HEIGHT ,2*SHIP_HEIGHT], [SEA_W-2*SHIP_HEIGHT,SEA_H-2*SHIP_HEIGHT])
+        while(getDistToRockfield(initial_x, initial_y) < 3*ROCK_RADIUS):
+            initial_x, initial_y = np.random.uniform( [2*SHIP_HEIGHT ,2*SHIP_HEIGHT], [SEA_W-2*SHIP_HEIGHT,SEA_H-2*SHIP_HEIGHT])
+
         initial_heading = np.random.uniform(0, math.pi)
         
-        targetX = np.random.uniform( 10*SHIP_HEIGHT, SEA_W-10*SHIP_HEIGHT)
-        targetY = np.random.uniform( 10*SHIP_HEIGHT, SEA_H-10*SHIP_HEIGHT)
+        # create target randomly, but not overlapping an existing rock
+        targetX, targetY = np.random.uniform( [10*SHIP_HEIGHT ,10*SHIP_HEIGHT], [SEA_W-10*SHIP_HEIGHT,SEA_H-10*SHIP_HEIGHT])
+
+        while(getDistToRockfield(targetX,targetY) < 3*ROCK_RADIUS):
+            targetX, targetY = np.random.uniform( [10*SHIP_HEIGHT ,10*SHIP_HEIGHT], [SEA_W-10*SHIP_HEIGHT,SEA_H-10*SHIP_HEIGHT])
+        
           
         self.target = self.world.CreateStaticBody(
                 position = (targetX,targetY),
@@ -135,19 +159,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.target.color1 = rgb(255,0,0)
         self.target.color2 = rgb(0,255,0)
         
-        for i in range(n_Rocks):
-            rock =self.world.CreateStaticBody(
-                position=(np.random.uniform( 2*SHIP_HEIGHT, SEA_W-2*SHIP_HEIGHT), np.random.uniform( 2*SHIP_HEIGHT, SEA_H-2*SHIP_HEIGHT)),
-                angle=np.random.uniform( 0, 2*math.pi),
-                fixtures=fixtureDef(
-                    shape = circleShape(pos=(0,0),radius = ROCK_RADIUS),
-                categoryBits=0x0010,
-                maskBits=0x1111,
-                restitution=1.0))
-            rock.color1 = rgb(83, 43, 9) # brown
-            rock.color2 = rgb(41, 14, 9) # darker brown
-            self.rocks.append(rock)
-            
+                  
             
         
         self.ship = self.world.CreateDynamicBody(
@@ -256,7 +268,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         
         
         outside = (abs(pos.x - SEA_W*0.5) > SEA_W*0.49) or (abs(pos.y - SEA_H*0.5) > SEA_H*0.49)
-        print('distance = {} \ttarget pos X = {}\tpos Y = {}'.format(distance,self.target.position[0] ,self.target.position[1] ))
+        #print('distance = {} \ttarget pos X = {}\tpos Y = {}'.format(distance,self.target.position[0] ,self.target.position[1] ))
         hit_target = (distance < (2*ROCK_RADIUS)/norm_pos)
         done = False
         
