@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Wed Jan 15 10:11:52 2020
+Created on Tue Feb 13 10:19:52 2020
 
 @author: gfo
 """
@@ -66,11 +66,10 @@ K_Yv = 10*K_Xu # [N/(m/s)]
 # ROCK
 ROCK_RADIUS = 20
 
+n_Rocks = 25
 
-#TRAFFIC
-n_shipsInTraffic = 250
 
-class ShipNavigationWithTrafficEnv(gym.Env):
+class ShipNavigationWithObstaclesEnv(gym.Env):
     metadata = {
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second': FPS
@@ -104,8 +103,8 @@ class ShipNavigationWithTrafficEnv(gym.Env):
             return
         self.world.DestroyBody(self.ship)
         self.world.DestroyBody(self.target)
-        for ship in self.traffic:
-            self.world.DestroyBody(ship)
+        for rock in self.rocks:
+            self.world.DestroyBody(rock)
         self.ship = None
 
     def reset(self):
@@ -116,7 +115,7 @@ class ShipNavigationWithTrafficEnv(gym.Env):
         self.throttle = 0
         self.rudder_angle = 0.0
         self.stepnumber = 0
-        self.traffic = []
+        self.rocks = []
 
         initial_x = np.random.uniform( 2*SHIP_HEIGHT, SEA_W-2*SHIP_HEIGHT)
         initial_y = np.random.uniform( 2*SHIP_HEIGHT, SEA_H-2*SHIP_HEIGHT)
@@ -136,34 +135,18 @@ class ShipNavigationWithTrafficEnv(gym.Env):
         self.target.color1 = rgb(255,0,0)
         self.target.color2 = rgb(0,255,0)
         
-        for i in range(n_shipsInTraffic):
-            ship =self.world.CreateDynamicBody(
+        for i in range(n_Rocks):
+            rock =self.world.CreateStaticBody(
                 position=(np.random.uniform( 2*SHIP_HEIGHT, SEA_W-2*SHIP_HEIGHT), np.random.uniform( 2*SHIP_HEIGHT, SEA_H-2*SHIP_HEIGHT)),
-            angle=np.random.uniform( 0, 2*math.pi),
-            fixtures=fixtureDef(
-                shape=polygonShape(vertices=((-SHIP_WIDTH / 2, 0),
-                                              (+SHIP_WIDTH / 2, 0),
-                                              (SHIP_WIDTH / 2, +SHIP_HEIGHT),
-                                              (0, +SHIP_HEIGHT*1.2),
-                                              (-SHIP_WIDTH / 2, +SHIP_HEIGHT))),
-                density=1.0,
+                angle=np.random.uniform( 0, 2*math.pi),
+                fixtures=fixtureDef(
+                    shape = circleShape(pos=(0,0),radius = ROCK_RADIUS),
                 categoryBits=0x0010,
                 maskBits=0x1111,
-                restitution=0.0),
-                linearDamping=1,
-                angularDamping=2,
-                active = True
-                )
-            newMassData = ship.massData
-            newMassData.mass = SHIP_MASS
-            newMassData.center = (0.0,SHIP_HEIGHT/2)
-            newMassData.I = SHIP_INERTIA + SHIP_MASS*(newMassData.center[0]**2+newMassData.center[1]**2) # inertia is defined at origin location not localCenter
-            ship.massData = newMassData
-            ship.color1 = rgb(0, 0, 255)
-            ship.linearVelocity = ship.GetWorldVector((0,np.random.uniform( 5, 20)))
-            ship.angularVelocity = 0
-             
-            self.traffic.append(ship)
+                restitution=1.0))
+            rock.color1 = rgb(83, 43, 9) # brown
+            rock.color2 = rgb(41, 14, 9) # darker brown
+            self.rocks.append(rock)
             
             
         
@@ -196,7 +179,7 @@ class ShipNavigationWithTrafficEnv(gym.Env):
         self.ship.massData = newMassData
         
         
-        self.drawlist = [self.ship, self.target] + self.traffic
+        self.drawlist = [self.ship, self.target] + self.rocks
         
        
         return self.step(2)[0]
@@ -231,19 +214,6 @@ class ShipNavigationWithTrafficEnv(gym.Env):
         self.ship.ApplyTorque(torque=torque_damping,wake=False)
         self.ship.ApplyForce(force=force_thruster, point=self.ship.position, wake=False)
         self.ship.ApplyForce(force=force_damping, point=COGpos, wake=False)
-        
-        for ship in self.traffic:
-            # teleport ships that are out of map to the opposit position
-            if ship.position[0] < 0:
-                ship.position = (SEA_W,ship.position[1])
-            if ship.position[0] > SEA_W:
-                ship.position = (0,ship.position[1])
-            if ship.position[1] < 0:
-                ship.position = (ship.position[0],SEA_H)
-            if ship.position[1] > SEA_H:
-                ship.position = (ship.position[0],0)
-            force_thruster = ship.GetWorldVector((0,THRUSTER_MAX_FORCE))
-            ship.ApplyForce(force=force_thruster, point=ship.position, wake=False)
         
         self.world.Step(1.0 / FPS, 60, 60)
         
