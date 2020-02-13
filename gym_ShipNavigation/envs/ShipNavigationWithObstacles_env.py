@@ -107,7 +107,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.throttle = 0
         self.thruster_angle = 0.0
 
-        high = np.ones(2, dtype=np.float32)
+        high = np.ones(6 +2*n_Rocks, dtype=np.float32)
         low = -high
 
         self.observation_space = spaces.Box(low, high, dtype=np.float32)
