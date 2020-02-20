@@ -80,15 +80,39 @@ ROCK_RADIUS = 20
 
 n_Rocks = 0
 
+# def getDistanceBearing(ship,target):
+#     x_distance = (target.position[0] - ship.position[0])
+#     y_distance = (target.position[1] - ship.position[1])
+#     distance = np.linalg.norm((x_distance, y_distance))
+#     angle = -(ship.angle + np.pi/2)
+#     u = x_distance*np.cos(angle) + y_distance*np.sin(angle)
+#     v = -x_distance*np.sin(angle) + y_distance*np.cos(angle)
+#     bearing = np.arctan2(v,u)
+#     return (distance, bearing)
+
 def getDistanceBearing(ship,target):
-    x_distance = (target.position[0] - ship.position[0])
-    y_distance = (target.position[1] - ship.position[1])
-    distance = np.linalg.norm((x_distance, y_distance))
-    angle = -(ship.angle + np.pi/2)
-    u = x_distance*np.cos(angle) + y_distance*np.sin(angle)
-    v = -x_distance*np.sin(angle) + y_distance*np.cos(angle)
-    bearing = np.arctan2(v,u)
+    COGpos = ship.GetWorldPoint(ship.localCenter)
+    x_distance = (target.position[0] - COGpos[0])
+    y_distance = (target.position[1] - COGpos[1])
+    localPos = ship.GetLocalVector((x_distance,y_distance))
+    distance = np.linalg.norm(localPos)
+    bearing = np.arctan2(localPos[0],localPos[1])
     return (distance, bearing)
+
+class myContactListener(contactListener):
+    def __init__(self):
+        contactListener.__init__(self)
+    def BeginContact(self, contact):
+        print('!! contact callback !!')
+        for fixture in (contact.fixtureA, contact.fixtureB):
+            if fixture.body.userData['name'] in ('ship','target'):
+                fixture.body.userData['hit'] = True
+    def EndContact(self, contact):
+        pass
+    def PreSolve(self, contact, oldManifold):
+        pass
+    def PostSolve(self, contact, impulse):
+        pass
 
 class ShipNavigationWithObstaclesEnv(gym.Env):
     metadata = {
@@ -101,12 +125,13 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.viewer = None
         self.episode_number = 0
 
-        self.world = Box2D.b2World(gravity=(0,0))
+        self.world = Box2D.b2World(gravity=(0,0),
+            contactListener=myContactListener())
         self.ship = None
         self.target = None
         self.throttle = 0
         self.thruster_angle = 0.0
-
+        
         high = np.ones(6 +2*n_Rocks, dtype=np.float32)
         low = -high
 
@@ -151,6 +176,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
                 restitution=1.0))
             rock.color1 = rgb(83, 43, 9) # brown
             rock.color2 = rgb(41, 14, 9) # darker brown
+            rock.userData = {'name':'rock','hit':False}
             self.rocks.append(rock)
         
         getDistToRockfield = lambda x,y: np.asarray([np.sqrt((rock.position.x - x)**2 + (rock.position.y - y)**2) for rock in self.rocks]).min() if len(self.rocks) > 0 else np.inf # infinite distance if there is no rock field
@@ -179,7 +205,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
                         restitution=0.1))
         self.target.color1 = rgb(255,0,0)
         self.target.color2 = rgb(0,255,0)
-        
+        self.target.userData = {'name':'target','hit':False}
                   
             
         
@@ -196,13 +222,14 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
                 categoryBits=0x0010,
                 maskBits=0x1111,
                 restitution=0.0),
-                linearDamping=0,
-                angularDamping=0
+            linearDamping=0,
+            angularDamping=0
         )
 
         self.ship.color1 = rgb(230, 230, 230)
         self.ship.linearVelocity = (0.0,0.0)
         self.ship.angularVelocity = 0
+        self.ship.userData = {'name':'ship','hit':False}
         
          
         newMassData = self.ship.massData
@@ -288,7 +315,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         
         outside = (abs(pos.x - SEA_W*0.5) > SEA_W*0.49) or (abs(pos.y - SEA_H*0.5) > SEA_H*0.49)
         #print('distance = {} \ttarget pos X = {}\tpos Y = {}'.format(distance,self.target.position[0] ,self.target.position[1] ))
-        hit_target = (distance_t < (2*ROCK_RADIUS))
+        #hit_target = (distance_t < (2*ROCK_RADIUS))
         done = False
         
         reward = -1.0/FPS
@@ -297,7 +324,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
             print('outside')
             self.game_over = True
             reward = -1 # high negative reward when outside of playground
-        elif hit_target:
+        elif self.ship.userData['hit']:
             print("target hit!!!",distance_t,(2*ROCK_RADIUS)/norm_pos)
             self.game_over = True
             reward = +1000  #high positive reward. hitting target is good
@@ -312,7 +339,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
 
         self.stepnumber += 1
 
-        return np.array(state[:]), reward, done, {}
+        return np.array(state), reward, done, {}
 
     def render(self, mode='human', close=False):
         if close:
@@ -364,8 +391,8 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
                 trans = f.body.transform
                 if type(f.shape) is circleShape:
                     t = rendering.Transform(translation=trans*f.shape.pos)
-                    self.viewer.draw_circle(f.shape.radius, 30, color=obj.color1).add_attr(t)
-                    self.viewer.draw_circle(f.shape.radius, 30, color=obj.color2, filled=False, linewidth=2).add_attr(t)
+                    self.viewer.draw_circle(f.shape.radius, 30, color= (obj.color1 if f.body.userData['hit'] else obj.color2)).add_attr(t)
+                    self.viewer.draw_circle(f.shape.radius, 30, color=(obj.color2 if f.body.userData['hit'] else obj.color1), filled=False, linewidth=2).add_attr(t)
                 else:   
                     path = [trans * v for v in f.shape.vertices]
                     self.viewer.draw_polygon(path, color=obj.color1)
