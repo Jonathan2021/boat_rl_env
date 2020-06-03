@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Tue Feb 13 10:19:52 2020
+Created on Wed May  6 10:48:48 2020
 
 @author: gfo
 """
@@ -14,7 +14,39 @@ from Box2D.b2 import (edgeShape, circleShape, fixtureDef, polygonShape, revolute
 import gym
 from gym import spaces
 from gym.utils import seeding
-import pyglet
+
+class OneHotEncoding(gym.Space):
+    """
+    {0,...,1,...,0}
+
+    Example usage:
+    self.observation_space = OneHotEncoding(size=4)
+    """
+    def __init__(self, size=None):
+        assert isinstance(size, int) and size > 0
+        self.size = size
+        gym.Space.__init__(self, (), np.int64)
+
+    def sample(self):
+        one_hot_vector = np.zeros(self.size)
+        one_hot_vector[np.random.randint(self.size)] = 1
+        return one_hot_vector
+
+    def contains(self, x):
+        if isinstance(x, (list, tuple, np.ndarray)):
+            number_of_zeros = list(x).count(0)
+            number_of_ones = list(x).count(1)
+            return (number_of_zeros == (self.size - 1)) and (number_of_ones == 1)
+        else:
+            return False
+
+    def __repr__(self):
+        return "OneHotEncoding(%d)" % self.size
+
+    def __eq__(self, other):
+        return self.size == other.size
+    
+
 """
 
 The objective of this environment is control a ship to reach a target
@@ -45,13 +77,7 @@ Discrete control inputs are:
     - no action
 
 """
-class DrawText:
-    def __init__(self, label:pyglet.text.Label):
-        self.label=label
-    def render(self):
-        self.label.draw()
-        
-        
+
 FPS = 60
 
 # THRUSTER
@@ -84,7 +110,7 @@ K_Yv = 10*K_Xu # [N/(m/s)]
 # ROCK
 ROCK_RADIUS = 20
 
-n_Rocks = 10
+n_Rocks = 0
 
 # def getDistanceBearing(ship,target):
 #     x_distance = (target.position[0] - ship.position[0])
@@ -110,20 +136,17 @@ class myContactListener(contactListener):
         contactListener.__init__(self)
     def BeginContact(self, contact):
         print('!! contact callback !!')
-        print(''.join((contact.fixtureA.body.userData['name'],contact.fixtureB.body.userData['name'])))
-        contact.fixtureA.body.userData['hit'] = True
-        contact.fixtureA.body.userData['hit_with'] = contact.fixtureB.body.userData['name']
-        contact.fixtureB.body.userData['hit'] = True
-        contact.fixtureB.body.userData['hit_with'] = contact.fixtureA.body.userData['name']
+        for fixture in (contact.fixtureA, contact.fixtureB):
+            if fixture.body.userData['name'] in ('ship','target'):
+                fixture.body.userData['hit'] = True
     def EndContact(self, contact):
-        print('!! end of contact callback !!')
         pass
     def PreSolve(self, contact, oldManifold):
         pass
     def PostSolve(self, contact, impulse):
         pass
 
-class ShipNavigationWithObstaclesEnv(gym.Env):
+class ShipNavigationWithObstaclesOHEEnv(gym.Env):
     metadata = {
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second': FPS
@@ -145,7 +168,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         low = -high
 
         self.observation_space = spaces.Box(low, high, dtype=np.float32)
-        self.action_space = spaces.Discrete(3)
+        self.action_space = OneHotEncoding(size=3)
 
         self.reset()
 
@@ -185,7 +208,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
                 restitution=1.0))
             rock.color1 = rgb(83, 43, 9) # brown
             rock.color2 = rgb(41, 14, 9) # darker brown
-            rock.userData = {'name':'rock','hit':False,'hit_with':''}
+            rock.userData = {'name':'rock','hit':False}
             self.rocks.append(rock)
         
         getDistToRockfield = lambda x,y: np.asarray([np.sqrt((rock.position.x - x)**2 + (rock.position.y - y)**2) for rock in self.rocks]).min() if len(self.rocks) > 0 else np.inf # infinite distance if there is no rock field
@@ -214,7 +237,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
                         restitution=0.1))
         self.target.color1 = rgb(255,0,0)
         self.target.color2 = rgb(0,255,0)
-        self.target.userData = {'name':'target','hit':False,'hit_with':''}
+        self.target.userData = {'name':'target','hit':False}
                   
             
         
@@ -238,7 +261,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.ship.color1 = rgb(230, 230, 230)
         self.ship.linearVelocity = (0.0,0.0)
         self.ship.angularVelocity = 0
-        self.ship.userData = {'name':'ship','hit':False,'hit_with':''}
+        self.ship.userData = {'name':'ship','hit':False}
         
          
         newMassData = self.ship.massData
@@ -251,14 +274,14 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.drawlist = [self.ship, self.target] + self.rocks
         
        
-        return self.step(2)[0]
+        return self.step(np.array((0,0,1)))[0]
 
     def step(self, action):
 
         state = []
-        if action == 0:
+        if action.argmax() == 0:
             self.thruster_angle += 0.01
-        elif action == 1:
+        elif action.argmax() == 1:
             self.thruster_angle -= 0.01
 
         self.thruster_angle = np.clip(self.thruster_angle, -THRUSTER_MAX_ANGLE, THRUSTER_MAX_ANGLE)
@@ -308,7 +331,6 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         
         for rock in self.rocks:
             distance, bearing = getDistanceBearing(self.ship,rock)
-            distance = np.maximum(distance-ROCK_RADIUS,0)
             #print("bearing = %0.3f deg distance = %0.3f m " %(bearing*180/np.pi,distance))
             state.append(distance/norm_pos)
             state.append(bearing/np.pi)
@@ -328,39 +350,28 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         #hit_target = (distance_t < (2*ROCK_RADIUS))
         done = False
         
-        self.reward = 0
-        self.target_reward = 0
-        self.rock_reward = 0
-        
+        reward = -1.0/FPS
+
         if outside:
             print('outside')
             self.game_over = True
-            self.reward = -1 #  
+            reward = -1 # high negative reward when outside of playground
         elif self.ship.userData['hit']:
-            if(self.ship.userData['hit_with']=='target'):
-                print('target hit!')
-                self.reward = +10000  #high positive reward. hitting target is good
-            else:
-                print('ship crashed into something')
-                self.reward = -10000 #high negative reward. hitting anything else than target is bad
+            print("target hit!!!",distance_t,(2*ROCK_RADIUS)/norm_pos)
             self.game_over = True
-            
+            reward = +10000  #high positive reward. hitting target is good
         else:   # general case, we're trying to reach target so being close should be rewarded
-            self.target_reward = (1-(distance_t/norm_pos)**0.4) + (0.5-np.absolute(bearing_t/np.pi)**0.4)
-        
-            for i in range(n_Rocks):
-                self.rock_reward += - 10 * np.maximum(0.95-np.absolute(state[6+2*i])**0.05,0) * 20*np.maximum((0.05-np.absolute(state[6+2*i+1])**4),0) 
+            reward = (1-(distance_t/norm_pos)**0.4) + (0.5-np.absolute(bearing_t/np.pi)**0.4)
+            
         if self.game_over:
             print("game over")
             done = True
-        
-        self.reward += self.target_reward + self.rock_reward
-        
+
         # REWARD -------------------------------------------------------------------------------------------------------
 
         self.stepnumber += 1
 
-        return np.array(state), self.reward, done, {}
+        return np.array(state), reward, done, {}
 
     def render(self, mode='human', close=False):
         if close:
@@ -374,16 +385,6 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         if self.viewer is None:
 
             self.viewer = rendering.Viewer(SEA_W, SEA_H)
-            
-            self.score_label = pyglet.text.Label('0000', font_size=36,
-                x=SEA_W, y=SEA_H, anchor_x='right', anchor_y='top',
-                color=(255,255,255,255))
-            self.score_label_2 = pyglet.text.Label('0000', font_size=36,
-                x=SEA_W, y=SEA_H-50, anchor_x='right', anchor_y='top',
-                color=(255,255,255,255))
-            self.score_label_3 = pyglet.text.Label('0000', font_size=36,
-                x=SEA_W, y=SEA_H-100, anchor_x='right', anchor_y='top',
-                color=(255,255,255,255))
 
             water = rendering.FilledPolygon(((0, 0), (0, SEA_H), (SEA_W, SEA_H), (SEA_W, 0)))
             self.water_color = rgb(126, 150, 233)
@@ -415,13 +416,8 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
             
             COG.set_color(0.0, 0.0, 0.0)
             self.viewer.add_geom(COG)
-            self.viewer.add_geom(DrawText(self.score_label))
-            self.viewer.add_geom(DrawText(self.score_label_2))
-            self.viewer.add_geom(DrawText(self.score_label_3))
             
             
-        
-        
         for obj in self.drawlist:
             for f in obj.fixtures:
                 trans = f.body.transform
@@ -438,11 +434,6 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.shiptrans.set_rotation(self.ship.angle)
         self.thrustertrans.set_rotation(self.thruster_angle)
         self.COGtrans.set_translation(*self.ship.localCenter)
-        
-        self.score_label.text = "%1.4f" % self.reward
-        self.score_label_2.text = "%1.4f" % self.target_reward
-        self.score_label_3.text = "%1.4f" % self.rock_reward
-        self.score_label.draw()
         
         return self.viewer.render(return_rgb_array=mode == 'rgb_array')
 

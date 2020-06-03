@@ -68,7 +68,7 @@ ROCK_RADIUS = 20
 
 
 #TRAFFIC
-n_shipsInTraffic = 250
+n_shipsInTraffic = 25
 
 class ShipNavigationWithTrafficEnv(gym.Env):
     metadata = {
