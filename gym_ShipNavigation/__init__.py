@@ -24,3 +24,11 @@ register(
     id='ShipNav-v3',
     entry_point='gym_ShipNavigation.envs:ShipNavigationWithObstaclesOHEEnv',
 )
+register(
+    id='ShipNav-v4',
+    entry_point='gym_ShipNavigation.envs:ShipNavigationWithOneObstacleEnv',
+)
+register(
+    id='ShipNav-v5',
+    entry_point='gym_ShipNavigation.envs:ShipNavigationSimpleEnv',
+)

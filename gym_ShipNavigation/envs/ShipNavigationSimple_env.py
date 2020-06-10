@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Created on Mon Jun  8 14:56:18 2020
+
+@author: gfo
+"""
+
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
 Created on Tue Feb 13 10:19:52 2020
 
 @author: gfo
@@ -21,8 +29,6 @@ The objective of this environment is control a ship to reach a target
 
 STATE VARIABLES
 The state consists of the following variables:
-    - ship's velocity on it's sway axis
-    - ship's velocity on its surge axis
     - angular velocity
     - thruster angle normalized
     - distance to target (ship's frame) normalized
@@ -105,25 +111,30 @@ def getDistanceBearing(ship,target):
     bearing = np.arctan2(localPos[0],localPos[1])
     return (distance, bearing)
 
+def getDistancesShipFrame(ship,target):
+    COGpos = ship.GetWorldPoint(ship.localCenter)
+    x_distance = (target.position[0] - COGpos[0])
+    y_distance = (target.position[1] - COGpos[1])
+    localPos = ship.GetLocalVector((x_distance,y_distance))
+    return (x_distance, y_distance)
+
 class myContactListener(contactListener):
     def __init__(self):
         contactListener.__init__(self)
     def BeginContact(self, contact):
-        print('!! contact callback !!')
-        print(''.join((contact.fixtureA.body.userData['name'],contact.fixtureB.body.userData['name'])))
+        print(' - '.join((contact.fixtureA.body.userData['name'],contact.fixtureB.body.userData['name'])))
         contact.fixtureA.body.userData['hit'] = True
         contact.fixtureA.body.userData['hit_with'] = contact.fixtureB.body.userData['name']
         contact.fixtureB.body.userData['hit'] = True
         contact.fixtureB.body.userData['hit_with'] = contact.fixtureA.body.userData['name']
     def EndContact(self, contact):
-        print('!! end of contact callback !!')
         pass
     def PreSolve(self, contact, oldManifold):
         pass
     def PostSolve(self, contact, impulse):
         pass
 
-class ShipNavigationWithObstaclesEnv(gym.Env):
+class ShipNavigationSimpleEnv(gym.Env):
     metadata = {
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second': FPS
@@ -141,11 +152,11 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.throttle = 0
         self.thruster_angle = 0.0
         
-        high = np.ones(6 +2*n_Rocks, dtype=np.float32)
+        high = np.ones(4 +2*n_Rocks, dtype=np.float32)
         low = -high
 
         self.observation_space = spaces.Box(low, high, dtype=np.float32)
-        self.action_space = spaces.Discrete(3)
+        self.action_space = spaces.Discrete(2)
 
         self.reset()
 
@@ -163,7 +174,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.ship = None
 
     def reset(self):
-        print('reset env')
+        #print('reset env')
         self._destroy()
         self.game_over = False
         self.prev_shaping = None
@@ -300,7 +311,6 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         
         distance_t, bearing_t = getDistanceBearing(self.ship,self.target)
         
-        state += list(np.asarray(self.ship.GetLocalVector(self.ship.linearVelocity))/Vmax)
         state.append(self.ship.angularVelocity/Rmax)
         state.append(self.thruster_angle / THRUSTER_MAX_ANGLE)
         state.append(distance_t/norm_pos)
@@ -308,8 +318,6 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         
         for rock in self.rocks:
             distance, bearing = getDistanceBearing(self.ship,rock)
-            distance = np.maximum(distance-ROCK_RADIUS,0)
-            #print("bearing = %0.3f deg distance = %0.3f m " %(bearing*180/np.pi,distance))
             state.append(distance/norm_pos)
             state.append(bearing/np.pi)
             
@@ -328,30 +336,28 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         #hit_target = (distance_t < (2*ROCK_RADIUS))
         done = False
         
-        self.reward = 0
+        self.reward = -1
         self.target_reward = 0
         self.rock_reward = 0
         
         if outside:
-            print('outside')
+            #print('outside')
             self.game_over = True
-            self.reward = -1 #  
         elif self.ship.userData['hit']:
             if(self.ship.userData['hit_with']=='target'):
                 print('target hit!')
-                self.reward = +10000  #high positive reward. hitting target is good
+                self.reward = +500  #high positive reward. hitting target is good
             else:
                 print('ship crashed into something')
-                self.reward = -10000 #high negative reward. hitting anything else than target is bad
+                self.reward = -500 #high negative reward. hitting anything else than target is bad
             self.game_over = True
-            
         else:   # general case, we're trying to reach target so being close should be rewarded
-            self.target_reward = (1-(distance_t/norm_pos)**0.4) + (0.5-np.absolute(bearing_t/np.pi)**0.4)
+            self.target_reward = (1-(distance_t/norm_pos)**0.4) 
         
             for i in range(n_Rocks):
                 self.rock_reward += - 10 * np.maximum(0.95-np.absolute(state[6+2*i])**0.05,0) * 20*np.maximum((0.05-np.absolute(state[6+2*i+1])**4),0) 
         if self.game_over:
-            print("game over")
+            #print("game over")
             done = True
         
         self.reward += self.target_reward + self.rock_reward
@@ -427,7 +433,6 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
             self.viewer.add_geom(DrawText(self.score_label_3))
             self.viewer.add_geom(DrawText(self.state_label))
             self.viewer.add_geom(DrawText(self.action_label))
-            
         
         
         for obj in self.drawlist:

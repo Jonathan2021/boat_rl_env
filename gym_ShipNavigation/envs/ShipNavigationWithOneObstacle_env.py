@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Created on Thu Jun  4 15:13:22 2020
+
+@author: gfo
+"""
+
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
 Created on Tue Feb 13 10:19:52 2020
 
 @author: gfo
@@ -84,17 +92,8 @@ K_Yv = 10*K_Xu # [N/(m/s)]
 # ROCK
 ROCK_RADIUS = 20
 
-n_Rocks = 0
+n_Rocks = 1
 
-# def getDistanceBearing(ship,target):
-#     x_distance = (target.position[0] - ship.position[0])
-#     y_distance = (target.position[1] - ship.position[1])
-#     distance = np.linalg.norm((x_distance, y_distance))
-#     angle = -(ship.angle + np.pi/2)
-#     u = x_distance*np.cos(angle) + y_distance*np.sin(angle)
-#     v = -x_distance*np.sin(angle) + y_distance*np.cos(angle)
-#     bearing = np.arctan2(v,u)
-#     return (distance, bearing)
 
 def getDistanceBearing(ship,target):
     COGpos = ship.GetWorldPoint(ship.localCenter)
@@ -109,21 +108,19 @@ class myContactListener(contactListener):
     def __init__(self):
         contactListener.__init__(self)
     def BeginContact(self, contact):
-        print('!! contact callback !!')
-        print(''.join((contact.fixtureA.body.userData['name'],contact.fixtureB.body.userData['name'])))
+        #print(' with '.join((contact.fixtureA.body.userData['name'],contact.fixtureB.body.userData['name'])))
         contact.fixtureA.body.userData['hit'] = True
         contact.fixtureA.body.userData['hit_with'] = contact.fixtureB.body.userData['name']
         contact.fixtureB.body.userData['hit'] = True
         contact.fixtureB.body.userData['hit_with'] = contact.fixtureA.body.userData['name']
     def EndContact(self, contact):
-        print('!! end of contact callback !!')
         pass
     def PreSolve(self, contact, oldManifold):
         pass
     def PostSolve(self, contact, impulse):
         pass
 
-class ShipNavigationWithObstaclesEnv(gym.Env):
+class ShipNavigationWithOneObstacleEnv(gym.Env):
     metadata = {
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second': FPS
@@ -141,11 +138,11 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.throttle = 0
         self.thruster_angle = 0.0
         
-        high = np.ones(6 +2*n_Rocks, dtype=np.float32)
+        high = np.ones(4 +2*n_Rocks, dtype=np.float32)
         low = -high
 
         self.observation_space = spaces.Box(low, high, dtype=np.float32)
-        self.action_space = spaces.Discrete(3)
+        self.action_space = spaces.Discrete(2)
 
         self.reset()
 
@@ -163,7 +160,6 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.ship = None
 
     def reset(self):
-        print('reset env')
         self._destroy()
         self.game_over = False
         self.prev_shaping = None
@@ -172,11 +168,21 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.stepnumber = 0
         self.rocks = []
 
-        # create rock field randomly
+        getDistToRockfield = lambda x,y: np.asarray([np.sqrt((rock.position.x - x)**2 + (rock.position.y - y)**2) for rock in self.rocks]).min() if len(self.rocks) > 0 else np.inf # infinite distance if there is no rock field
+        
+        # create target randomly
+        initial_x, initial_y = np.random.uniform( [2*SHIP_HEIGHT ,2*SHIP_HEIGHT], [SEA_W-2*SHIP_HEIGHT,SEA_H-2*SHIP_HEIGHT])
+       
+        # create target randomly
+        targetX, targetY = np.random.uniform( [10*SHIP_HEIGHT ,10*SHIP_HEIGHT], [SEA_W-10*SHIP_HEIGHT,SEA_H-10*SHIP_HEIGHT])
+
+        initial_heading = math.atan2(targetY-initial_y,targetX-initial_x) - math.pi/2
+      
+        # create rock on the ship-target axis
         for i in range(n_Rocks):
-            
+            l_lambda = np.random.uniform(0.25,0.75)
             rock =self.world.CreateStaticBody(
-                position=(np.random.uniform( 2*SHIP_HEIGHT, SEA_W-2*SHIP_HEIGHT), np.random.uniform( 2*SHIP_HEIGHT, SEA_H-2*SHIP_HEIGHT)),
+                position=(initial_x+l_lambda*(targetX-initial_x), initial_y+l_lambda*(targetY-initial_y)),
                 angle=np.random.uniform( 0, 2*math.pi),
                 fixtures=fixtureDef(
                     shape = circleShape(pos=(0,0),radius = ROCK_RADIUS),
@@ -187,23 +193,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
             rock.color2 = rgb(41, 14, 9) # darker brown
             rock.userData = {'name':'rock','hit':False,'hit_with':''}
             self.rocks.append(rock)
-        
-        getDistToRockfield = lambda x,y: np.asarray([np.sqrt((rock.position.x - x)**2 + (rock.position.y - y)**2) for rock in self.rocks]).min() if len(self.rocks) > 0 else np.inf # infinite distance if there is no rock field
-        
-        # create target randomly, but not overlapping an existing rock
-        initial_x, initial_y = np.random.uniform( [2*SHIP_HEIGHT ,2*SHIP_HEIGHT], [SEA_W-2*SHIP_HEIGHT,SEA_H-2*SHIP_HEIGHT])
-        while(getDistToRockfield(initial_x, initial_y) < 3*ROCK_RADIUS):
-            initial_x, initial_y = np.random.uniform( [2*SHIP_HEIGHT ,2*SHIP_HEIGHT], [SEA_W-2*SHIP_HEIGHT,SEA_H-2*SHIP_HEIGHT])
-
-        initial_heading = np.random.uniform(0, math.pi)
-        
-        # create target randomly, but not overlapping an existing rock
-        targetX, targetY = np.random.uniform( [10*SHIP_HEIGHT ,10*SHIP_HEIGHT], [SEA_W-10*SHIP_HEIGHT,SEA_H-10*SHIP_HEIGHT])
-
-        while(getDistToRockfield(targetX,targetY) < 3*ROCK_RADIUS):
-            targetX, targetY = np.random.uniform( [10*SHIP_HEIGHT ,10*SHIP_HEIGHT], [SEA_W-10*SHIP_HEIGHT,SEA_H-10*SHIP_HEIGHT])
-        
-          
+            
         self.target = self.world.CreateStaticBody(
                 position = (targetX,targetY),
                 angle = 0.0,
@@ -300,7 +290,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         
         distance_t, bearing_t = getDistanceBearing(self.ship,self.target)
         
-        state += list(np.asarray(self.ship.GetLocalVector(self.ship.linearVelocity))/Vmax)
+        #state += list(np.asarray(self.ship.GetLocalVector(self.ship.linearVelocity))/Vmax)
         state.append(self.ship.angularVelocity/Rmax)
         state.append(self.thruster_angle / THRUSTER_MAX_ANGLE)
         state.append(distance_t/norm_pos)
@@ -328,39 +318,41 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         #hit_target = (distance_t < (2*ROCK_RADIUS))
         done = False
         
-        self.reward = 0
+        self.reward = -1
         self.target_reward = 0
         self.rock_reward = 0
-        
+        reason = ''
         if outside:
-            print('outside')
-            self.game_over = True
-            self.reward = -1 #  
+            self.outside = True
+            reason = 'ship is outside playfield'
         elif self.ship.userData['hit']:
             if(self.ship.userData['hit_with']=='target'):
-                print('target hit!')
-                self.reward = +10000  #high positive reward. hitting target is good
+                self.target_reward = +10000  #high positive reward. hitting target is good
+                reason = 'ship hit target'
             else:
-                print('ship crashed into something')
-                self.reward = -10000 #high negative reward. hitting anything else than target is bad
+                self.rock_reward = -10000 #high negative reward. hitting anything else than target is bad
+                reason = 'ship hit rock'
             self.game_over = True
             
         else:   # general case, we're trying to reach target so being close should be rewarded
-            self.target_reward = (1-(distance_t/norm_pos)**0.4) + (0.5-np.absolute(bearing_t/np.pi)**0.4)
+            self.target_reward = 1-(distance_t/norm_pos)
         
             for i in range(n_Rocks):
-                self.rock_reward += - 10 * np.maximum(0.95-np.absolute(state[6+2*i])**0.05,0) * 20*np.maximum((0.05-np.absolute(state[6+2*i+1])**4),0) 
+                #self.rock_reward += - 10 * np.maximum(0.95-np.absolute(state[4+2*i])**0.05,0) * 20*np.maximum((0.05-np.absolute(state[4+2*i+1])**4),0) 
+                self.rock_reward += 0
+        if self.stepnumber > 1000:
+            self.game_over = True
+            reason = 'max steps reached'
         if self.game_over:
-            print("game over")
+            print(" - ".join(("game over",reason)))
             done = True
         
         self.reward += self.target_reward + self.rock_reward
-        
+        self.reward/=1000
         # REWARD -------------------------------------------------------------------------------------------------------
 
         self.stepnumber += 1
         self.state = state
-        self.action = action
         return np.array(state), self.reward, done, {}
 
     def render(self, mode='human', close=False):
@@ -376,20 +368,17 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
 
             self.viewer = rendering.Viewer(SEA_W, SEA_H)
             
-            self.score_label = pyglet.text.Label('0000', font_size=36,
+            self.score_label = pyglet.text.Label('', font_size=36,
                 x=SEA_W, y=SEA_H, anchor_x='right', anchor_y='top',
                 color=(255,255,255,255))
-            self.score_label_2 = pyglet.text.Label('0000', font_size=36,
+            self.score_label_2 = pyglet.text.Label('', font_size=36,
                 x=SEA_W, y=SEA_H-50, anchor_x='right', anchor_y='top',
                 color=(255,255,255,255))
-            self.score_label_3 = pyglet.text.Label('0000', font_size=36,
+            self.score_label_3 = pyglet.text.Label('', font_size=36,
                 x=SEA_W, y=SEA_H-100, anchor_x='right', anchor_y='top',
                 color=(255,255,255,255))
             self.state_label = pyglet.text.Label('', font_size=36,
                 x=SEA_W, y=0, anchor_x='right', anchor_y='bottom',
-                color=(255,255,255,255))
-            self.action_label = pyglet.text.Label('', font_size=36,
-                x=0, y=0, anchor_x='left', anchor_y='bottom',
                 color=(255,255,255,255))
             
             water = rendering.FilledPolygon(((0, 0), (0, SEA_H), (SEA_W, SEA_H), (SEA_W, 0)))
@@ -426,7 +415,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
             self.viewer.add_geom(DrawText(self.score_label_2))
             self.viewer.add_geom(DrawText(self.score_label_3))
             self.viewer.add_geom(DrawText(self.state_label))
-            self.viewer.add_geom(DrawText(self.action_label))
+            
             
         
         
@@ -451,8 +440,6 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.score_label_2.text = "%1.4f" % self.target_reward
         self.score_label_3.text = "%1.4f" % self.rock_reward
         self.state_label.text = " ".join(['{:.2f}'.format(x) for x in self.state[-4:]])
-        self.action_label.text = "%d"%self.action
-        self.score_label.draw()
         
         return self.viewer.render(return_rgb_array=mode == 'rgb_array')
 
