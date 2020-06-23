@@ -129,19 +129,23 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
     def __init__(self):
         self._seed()
         self.viewer = None
-        self.episode_number = 0
-
         self.world = Box2D.b2World(gravity=(0,0),
             contactListener=myContactListener())
         self.ship = None
         self.target = None
+        self.rocks = []
+        
+        self.episode_number = 0
+        self.stepnumber = 0
+        self.game_over = False
         self.throttle = 0
         self.thruster_angle = 0.0
         
-        high = np.ones(4 +2*n_Rocks, dtype=np.float32)
-        low = -high
-
-        self.observation_space = spaces.Box(low, high, dtype=np.float32)
+        self.reward = 0
+        self.target_reward = 0
+        self.drawlist = None
+        
+        self.observation_space = spaces.Box(-1.0,1.0,shape=(4 +2*n_Rocks,), dtype=np.float32)
         self.action_space = spaces.Discrete(2)
 
         self.reset()
@@ -151,24 +155,22 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         return [seed]
 
     def _destroy(self):
-        if not self.ship:
-            return
+        if not self.ship: return
+        self.world.contactListener = None
         self.world.DestroyBody(self.ship)
-        self.world.DestroyBody(self.target)
-        for rock in self.rocks:
-            self.world.DestroyBody(rock)
         self.ship = None
+        self.world.DestroyBody(self.target)
+        self.target = None
+        while self.rocks :
+            self.world.DestroyBody(self.rocks.pop(0))
 
     def reset(self):
         self._destroy()
         self.game_over = False
-        self.prev_shaping = None
         self.throttle = 0
         self.thruster_angle = 0.0
         self.stepnumber = 0
         self.rocks = []
-
-        getDistToRockfield = lambda x,y: np.asarray([np.sqrt((rock.position.x - x)**2 + (rock.position.y - y)**2) for rock in self.rocks]).min() if len(self.rocks) > 0 else np.inf # infinite distance if there is no rock field
         
         # create target randomly
         initial_x, initial_y = np.random.uniform( [2*SHIP_HEIGHT ,2*SHIP_HEIGHT], [SEA_W-2*SHIP_HEIGHT,SEA_H-2*SHIP_HEIGHT])
@@ -237,11 +239,10 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         newMassData.I = SHIP_INERTIA + SHIP_MASS*(newMassData.center[0]**2+newMassData.center[1]**2) # inertia is defined at origin location not localCenter
         self.ship.massData = newMassData
         
-        
         self.drawlist = [self.ship, self.target] + self.rocks
         
-       
-        return self.step(2)[0]
+        #return np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0],dtype=np.float32)
+        return self.step(0)[0]
 
     def step(self, action):
 
@@ -313,47 +314,30 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         # state variables for reward
         
         
-        outside = (abs(pos.x - SEA_W*0.5) > SEA_W*0.49) or (abs(pos.y - SEA_H*0.5) > SEA_H*0.49)
-        #print('distance = {} \ttarget pos X = {}\tpos Y = {}'.format(distance,self.target.position[0] ,self.target.position[1] ))
-        #hit_target = (distance_t < (2*ROCK_RADIUS))
         done = False
         
         self.reward = -1
         self.target_reward = 0
-        self.rock_reward = 0
-        reason = ''
-        if outside:
-            self.outside = True
-            reason = 'ship is outside playfield'
-        elif self.ship.userData['hit']:
+        
+        if self.ship.userData['hit']:
             if(self.ship.userData['hit_with']=='target'):
                 self.target_reward = +10000  #high positive reward. hitting target is good
-                reason = 'ship hit target'
             else:
                 self.rock_reward = -10000 #high negative reward. hitting anything else than target is bad
-                reason = 'ship hit rock'
-            self.game_over = True
-            
+            done = True   
         else:   # general case, we're trying to reach target so being close should be rewarded
             self.target_reward = 1-(distance_t/norm_pos)
         
-            for i in range(n_Rocks):
-                #self.rock_reward += - 10 * np.maximum(0.95-np.absolute(state[4+2*i])**0.05,0) * 20*np.maximum((0.05-np.absolute(state[4+2*i+1])**4),0) 
-                self.rock_reward += 0
         if self.stepnumber > 1000:
-            self.game_over = True
-            reason = 'max steps reached'
-        if self.game_over:
-            print(" - ".join(("game over",reason)))
             done = True
+
         
-        self.reward += self.target_reward + self.rock_reward
+        self.reward += self.target_reward
         self.reward/=1000
         # REWARD -------------------------------------------------------------------------------------------------------
 
         self.stepnumber += 1
-        self.state = state
-        return np.array(state), self.reward, done, {}
+        return np.array(state, dtype=np.float32), self.reward, done, {}
 
     def render(self, mode='human', close=False):
         if close:
