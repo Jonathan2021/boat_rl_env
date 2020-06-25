@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Jun  4 15:13:22 2020
-
-@author: gfo
-"""
-
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
 Created on Tue Feb 13 10:19:52 2020
 
 @author: gfo
@@ -92,9 +84,6 @@ K_Yv = 10*K_Xu # [N/(m/s)]
 # ROCK
 ROCK_RADIUS = 20
 
-n_Rocks = 1
-
-
 def getDistanceBearing(ship,target):
     COGpos = ship.GetWorldPoint(ship.localCenter)
     x_distance = (target.position[0] - COGpos[0])
@@ -126,7 +115,11 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         'video.frames_per_second': FPS
     }
 
-    def __init__(self):
+    def __init__(self,**kwargs):
+        if 'n_rocks' in kwargs.keys():
+            self.n_rocks = kwargs['n_rocks']
+        else:
+            self.n_rocks = 0
         self._seed()
         self.viewer = None
         self.world = Box2D.b2World(gravity=(0,0),
@@ -145,7 +138,7 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         self.episode_reward = 0
         self.drawlist = None
         
-        self.observation_space = spaces.Box(-1.0,1.0,shape=(4 +2*n_Rocks,), dtype=np.float32)
+        self.observation_space = spaces.Box(-1.0,1.0,shape=(4 +2*self.n_rocks,), dtype=np.float32)
         self.action_space = spaces.Discrete(2)
 
         self.reset()
@@ -182,7 +175,7 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         initial_heading = math.atan2(targetY-initial_y,targetX-initial_x) - math.pi/2
       
         # create rock on the ship-target axis
-        for i in range(n_Rocks):
+        for i in range(self.n_rocks):
             l_lambda = np.random.uniform(0.25,0.75)
             rock =self.world.CreateStaticBody(
                 position=(initial_x+l_lambda*(targetX-initial_x), initial_y+l_lambda*(targetY-initial_y)),
@@ -335,8 +328,8 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         # REWARD -------------------------------------------------------------------------------------------------------
 
         self.stepnumber += 1
-        
-        return np.array(state, dtype=np.float32), self.reward, done, {}
+        self.state = np.array(state, dtype=np.float32)
+        return self.state, self.reward, done, {}
 
     def render(self, mode='human', close=False):
         if close:
@@ -399,8 +392,6 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
             self.viewer.add_geom(DrawText(self.score_label_3))
             self.viewer.add_geom(DrawText(self.state_label))
             
-            
-        
         
         for obj in self.drawlist:
             for f in obj.fixtures:
