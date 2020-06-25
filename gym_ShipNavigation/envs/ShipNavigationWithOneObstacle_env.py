@@ -140,9 +140,9 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         self.game_over = False
         self.throttle = 0
         self.thruster_angle = 0.0
-        
+        self.state = []
         self.reward = 0
-        self.target_reward = 0
+        self.episode_reward = 0
         self.drawlist = None
         
         self.observation_space = spaces.Box(-1.0,1.0,shape=(4 +2*n_Rocks,), dtype=np.float32)
@@ -156,7 +156,7 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
 
     def _destroy(self):
         if not self.ship: return
-        self.world.contactListener = None
+        #self.world.contactListener = None
         self.world.DestroyBody(self.ship)
         self.ship = None
         self.world.DestroyBody(self.target)
@@ -170,6 +170,7 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         self.throttle = 0
         self.thruster_angle = 0.0
         self.stepnumber = 0
+        self.episode_reward = 0
         self.rocks = []
         
         # create target randomly
@@ -241,7 +242,6 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         
         self.drawlist = [self.ship, self.target] + self.rocks
         
-        #return np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0],dtype=np.float32)
         return self.step(0)[0]
 
     def step(self, action):
@@ -316,27 +316,26 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         
         done = False
         
-        self.reward = -1
-        self.target_reward = 0
+        self.reward = 0
         
         if self.ship.userData['hit']:
             if(self.ship.userData['hit_with']=='target'):
-                self.target_reward = +10000  #high positive reward. hitting target is good
+                self.reward = +10  #high positive reward. hitting target is good
             else:
-                self.rock_reward = -10000 #high negative reward. hitting anything else than target is bad
-            done = True   
+                self.reward = -1 #high negative reward. hitting anything else than target is bad
+            done = True
         else:   # general case, we're trying to reach target so being close should be rewarded
-            self.target_reward = 1-(distance_t/norm_pos)
+            self.reward = (distance_t/norm_pos)/1000
         
         if self.stepnumber > 1000:
             done = True
 
-        
-        self.reward += self.target_reward
-        self.reward/=1000
+        self.episode_reward += self.reward
+
         # REWARD -------------------------------------------------------------------------------------------------------
 
         self.stepnumber += 1
+        
         return np.array(state, dtype=np.float32), self.reward, done, {}
 
     def render(self, mode='human', close=False):
@@ -352,10 +351,10 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
 
             self.viewer = rendering.Viewer(SEA_W, SEA_H)
             
-            self.score_label = pyglet.text.Label('', font_size=36,
+            self.reward_label = pyglet.text.Label('', font_size=36,
                 x=SEA_W, y=SEA_H, anchor_x='right', anchor_y='top',
                 color=(255,255,255,255))
-            self.score_label_2 = pyglet.text.Label('', font_size=36,
+            self.total_reward_label = pyglet.text.Label('', font_size=36,
                 x=SEA_W, y=SEA_H-50, anchor_x='right', anchor_y='top',
                 color=(255,255,255,255))
             self.score_label_3 = pyglet.text.Label('', font_size=36,
@@ -395,8 +394,8 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
             
             COG.set_color(0.0, 0.0, 0.0)
             self.viewer.add_geom(COG)
-            self.viewer.add_geom(DrawText(self.score_label))
-            self.viewer.add_geom(DrawText(self.score_label_2))
+            self.viewer.add_geom(DrawText(self.reward_label))
+            self.viewer.add_geom(DrawText(self.total_reward_label))
             self.viewer.add_geom(DrawText(self.score_label_3))
             self.viewer.add_geom(DrawText(self.state_label))
             
@@ -420,10 +419,10 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         self.thrustertrans.set_rotation(self.thruster_angle)
         self.COGtrans.set_translation(*self.ship.localCenter)
         
-        self.score_label.text = "%1.4f" % self.reward
-        self.score_label_2.text = "%1.4f" % self.target_reward
-        self.score_label_3.text = "%1.4f" % self.rock_reward
-        self.state_label.text = " ".join(['{:.2f}'.format(x) for x in self.state[-4:]])
+        self.reward_label.text = "%1.4f" % self.reward
+        self.total_reward_label.text = "%1.4f" % self.episode_reward
+        self.score_label_3.text = ""
+        self.state_label.text = " ".join(['state: '] + ['{:.2f}'.format(x) for x in self.state[:]])
         
         return self.viewer.render(return_rgb_array=mode == 'rgb_array')
 
