@@ -18,5 +18,9 @@ register(
 )
 register(
     id='ShipNav-v1',
+    entry_point='gym_ShipNavigation.envs:ShipNavigationWithObstaclesEnv',
+)
+register(
+    id='ShipNav-v2',
     entry_point='gym_ShipNavigation.envs:ShipNavigationWithTrafficEnv',
 )
