@@ -149,7 +149,6 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
 
     def _destroy(self):
         if not self.ship: return
-        #self.world.contactListener = None
         self.world.DestroyBody(self.ship)
         self.ship = None
         self.world.DestroyBody(self.target)
@@ -235,7 +234,7 @@ class ShipNavigationWithOneObstacleEnv(gym.Env):
         
         self.drawlist = [self.ship, self.target] + self.rocks
         
-        return self.step(0)[0]
+        return self.step(2)[0]
 
     def step(self, action):
 
