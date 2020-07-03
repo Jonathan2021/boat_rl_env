@@ -152,7 +152,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.episode_reward = 0
         self.drawlist = None
         
-        self.observation_space = spaces.Box(-1.0,1.0,shape=(4 +2*self.n_rocks,), dtype=np.float32)
+        self.observation_space = spaces.Box(-1.0,1.0,shape=(4 +2*self.n_rocks_obs,), dtype=np.float32)
         self.action_space = spaces.Discrete(2)
 
         self.reset()
