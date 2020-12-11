@@ -9,7 +9,7 @@ Created on Tue Feb 13 10:19:52 2020
 import math
 import numpy as np
 import Box2D
-from Box2D.b2 import (edgeShape, circleShape, fixtureDef, polygonShape, revoluteJointDef, distanceJointDef,
+from Box2D.b2 import (edgeShape, circleShape, fixtureDef, polygonShape, revoluteJointDef, distanceJointDef, chainShape,
                       contactListener)
 import gym
 from gym import spaces
@@ -55,7 +55,7 @@ class DrawText:
 FPS = 60
 
 # THRUSTER
-THRUSTER_MIN_THROTTLE = 0.4 # [%]
+THRUSTER_MIN_THROTTLE = 0.0 # [%]
 THRUSTER_MAX_ANGLE = 0.4    # [rad]
 THRUSTER_MAX_FORCE = 3e4    # [N]
 
@@ -134,6 +134,19 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
             self.n_rocks_obs = kwargs['n_rocks_obs']
         else:
             self.n_rocks_obs = self.n_rocks
+        if 'obs_method' in kwargs.keys():
+            self.obs_method_id = kwargs['obs_method']
+        else:
+            self.obs_method_id = 0
+        if 'horizon' in kwargs.keys():
+            self.horizon = kwargs['horizon']
+        else:
+            self.horizon = 100
+        if 'control_throttle' in kwargs.keys():
+            self.control_throttle = kwargs['control_throttle']
+        else:
+            self.control_throttle = False
+            
         self._seed()
         self.viewer = None
         self.world = Box2D.b2World(gravity=(0,0),
@@ -153,7 +166,11 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         self.drawlist = None
         
         self.observation_space = spaces.Box(-1.0,1.0,shape=(4 +2*self.n_rocks_obs,), dtype=np.float32)
-        self.action_space = spaces.Discrete(2)
+        if self.control_throttle:
+            self.action_space = spaces.MultiDiscrete([3,3])
+        else:
+            self.action_space = spaces.Discrete(3)
+            
 
         self.reset()
 
@@ -173,7 +190,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
     def reset(self):
         self._destroy()
         self.game_over = False
-        self.throttle = 0
+        self.throttle = 0.5
         self.thruster_angle = 0.0
         self.stepnumber = 0
         self.episode_reward = 0
@@ -187,8 +204,8 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
                 angle=np.random.uniform( 0, 2*math.pi),
                 fixtures=fixtureDef(
                     shape = circleShape(pos=(0,0),radius = ROCK_RADIUS),
-                categoryBits=0x0010,
-                maskBits=0x1111,
+                categoryBits=0x0001,
+                maskBits=0x0001,
                 restitution=1.0))
             rock.color1 = rgb(83, 43, 9) # brown
             rock.color2 = rgb(41, 14, 9) # darker brown
@@ -217,8 +234,8 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
                 angle = 0.0,
                 fixtures = fixtureDef(
                         shape = circleShape(pos=(0,0),radius = ROCK_RADIUS),
-                        categoryBits=0x0010,
-                        maskBits=0x1111,
+                        categoryBits=0x0001,
+                        maskBits=0x0001,
                         restitution=0.1))
         self.target.color1 = rgb(255,0,0)
         self.target.color2 = rgb(0,255,0)
@@ -231,20 +248,27 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
             position=(initial_x, initial_y),
             angle=initial_heading,
             fixtures=fixtureDef(
-                shape=polygonShape(vertices=((-SHIP_WIDTH / 2, 0),
+                shape=polygonShape(vertices=[(-SHIP_WIDTH / 2, 0),
                                               (+SHIP_WIDTH / 2, 0),
                                               (SHIP_WIDTH / 2, +SHIP_HEIGHT),
                                               (0, +SHIP_HEIGHT*1.2),
-                                              (-SHIP_WIDTH / 2, +SHIP_HEIGHT))),
+                                              (-SHIP_WIDTH / 2, +SHIP_HEIGHT)]),
                 density=0.0,
-                categoryBits=0x0010,
-                maskBits=0x1111,
+                categoryBits=0x0001,
+                maskBits=0x0001,
                 restitution=0.0),
             linearDamping=0,
             angularDamping=0
         )
-
+        # horizon_circle = fixtureDef(shape = chainShape(vertices=[((self.horizon) * math.cos(alpha),(self.horizon) * math.sin(alpha)) for alpha in np.array(range(0,32))/32*2*math.pi]),
+        #                               density=0,
+        #                               categoryBits=0x0004,
+        #                               maskBits=0x0001,
+        #                               restitution=0.0)
+        
         self.ship.color1 = rgb(230, 230, 230)
+        self.ship.color2 = rgb(230, 23, 23)
+        self.ship.color3 = rgb(230, 23, 23)
         self.ship.linearVelocity = (0.0,0.0)
         self.ship.angularVelocity = 0
         self.ship.userData = {'name':'ship','hit':False,'hit_with':''}
@@ -258,24 +282,43 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         
         self.drawlist = [self.ship, self.target] + self.rocks
         
-        return self.step(2)[0]
+        if self.control_throttle:
+            neutral_action = [2,2]
+        else:
+            neutral_action = 2
+            
+        return self.step(neutral_action)[0]
 
     def step(self, action):
 
         state = []
-        if action == 0:
+        actionRudder = 2
+        actionThrottle = 2
+        if self.control_throttle:
+            actionRudder = action[0]
+            actionThrottle = action[1]
+        else:
+            actionRudder = action
+            actionThrottle = 2
+            
+        if actionRudder == 0:
             self.thruster_angle += 0.01
-        elif action == 1:
+        elif actionRudder == 1:
             self.thruster_angle -= 0.01
+            
+        if actionThrottle == 0:
+            self.throttle += 0.1
+        elif actionThrottle == 1:
+            self.throttle -= 0.1
 
         self.thruster_angle = np.clip(self.thruster_angle, -THRUSTER_MAX_ANGLE, THRUSTER_MAX_ANGLE)
-        self.throttle = np.clip(self.throttle, 0.0, 1.0)
+        self.throttle = np.clip(self.throttle, THRUSTER_MIN_THROTTLE, 1.0)
 
         # main engine force
         force_pos = (self.ship.position[0], self.ship.position[1])
         COGpos = self.ship.GetWorldPoint(self.ship.localCenter)
-        force_thruster = (-np.sin(self.ship.angle + self.thruster_angle) * THRUSTER_MAX_FORCE,
-                  np.cos(self.ship.angle + self.thruster_angle) * THRUSTER_MAX_FORCE )
+        force_thruster = (-np.sin(self.ship.angle + self.thruster_angle)  * self.throttle * THRUSTER_MAX_FORCE,
+                  np.cos(self.ship.angle + self.thruster_angle) * self.throttle * THRUSTER_MAX_FORCE )
         
         localVelocity = self.ship.GetLocalVector(self.ship.linearVelocity)
 
@@ -308,6 +351,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
         distance_t, bearing_t = getDistanceBearing(self.ship,self.target)
         
         #state += list(np.asarray(self.ship.GetLocalVector(self.ship.linearVelocity))/Vmax)
+        state.append(self.throttle)
         state.append(self.ship.angularVelocity/Rmax)
         state.append(self.thruster_angle / THRUSTER_MAX_ANGLE)
         state.append(distance_t/norm_pos)
@@ -412,7 +456,7 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
             thruster.set_color(1.0, 1.0, 0.0)
             
             self.viewer.add_geom(thruster)
-            
+        
             COG = rendering.FilledPolygon(((-THRUSTER_WIDTH / 0.2, 0),
                                             (0, -THRUSTER_WIDTH/0.2),
                                               (THRUSTER_WIDTH / 0.2, 0),
@@ -433,8 +477,11 @@ class ShipNavigationWithObstaclesEnv(gym.Env):
                 trans = f.body.transform
                 if type(f.shape) is circleShape:
                     t = rendering.Transform(translation=trans*f.shape.pos)
-                    self.viewer.draw_circle(f.shape.radius, 30, color= (obj.color1 if f.body.userData['hit'] else (obj.color2 if f.body.userData['seen'] else obj.color3))).add_attr(t)
-                    self.viewer.draw_circle(f.shape.radius, 30, color= (obj.color2 if f.body.userData['hit'] else (obj.color3 if f.body.userData['seen'] else obj.color2)), filled=False, linewidth=2).add_attr(t)
+                    if 'seen' in f.body.userData.keys():
+                        self.viewer.draw_circle(f.shape.radius, 30, color= (obj.color1 if f.body.userData['hit'] else (obj.color2 if f.body.userData['seen'] else obj.color3))).add_attr(t)
+                        self.viewer.draw_circle(f.shape.radius, 30, color= (obj.color2 if f.body.userData['hit'] else (obj.color3 if f.body.userData['seen'] else obj.color2)), filled=False, linewidth=2).add_attr(t)
+                    else:
+                        self.viewer.draw_circle(f.shape.radius, 30, color= obj.color1).add_attr(t)
                 else:   
                     path = [trans * v for v in f.shape.vertices]
                     self.viewer.draw_polygon(path, color=obj.color1)
