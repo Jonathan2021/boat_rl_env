@@ -1,0 +1,7 @@
+README.md
+setup.py
+shipNavEnv.egg-info/PKG-INFO
+shipNavEnv.egg-info/SOURCES.txt
+shipNavEnv.egg-info/dependency_links.txt
+shipNavEnv.egg-info/requires.txt
+shipNavEnv.egg-info/top_level.txt

@@ -13,6 +13,7 @@ from Box2D.b2 import (circleShape, fixtureDef, polygonShape, contactListener)
 import gym
 from gym import spaces
 from gym.utils import seeding
+from shipNavEnv.envs.utils import getColor
 
 """
 The objective of this environment is control a ship to reach a target
@@ -91,7 +92,6 @@ class myContactListener(contactListener):
     def __init__(self):
         contactListener.__init__(self)
     def BeginContact(self, contact):
-        #print(' with '.join((contact.fixtureA.body.userData['name'],contact.fixtureB.body.userData['name'])))
         contact.fixtureA.body.userData['hit'] = True
         contact.fixtureA.body.userData['hit_with'] = contact.fixtureB.body.userData['name']
         contact.fixtureB.body.userData['hit'] = True
@@ -105,37 +105,14 @@ class myContactListener(contactListener):
 
 # gym env class
 class ShipNavRocks(gym.Env):
-    metadata = {
-        'render.modes': ['human', 'rgb_array'],
-        'video.frames_per_second': FPS
-    }
 
     def __init__(self,**kwargs):
-        if 'n_rocks' in kwargs.keys():
-            self.n_rocks = kwargs['n_rocks']
-        else:
-            self.n_rocks = 0
-        if 'n_rocks_obs' in kwargs.keys():
-            self.n_rocks_obs = kwargs['n_rocks_obs']
-        else:
-            self.n_rocks_obs = self.n_rocks
-        if 'obs_radius' in kwargs.keys():
-            self.obs_radius = kwargs['obs_radius']
-        else:
-            self.obs_radius = 200
-        if 'FPS' in kwargs.keys():
-            self.fps = kwargs['FPS']
-            self.metadata['video.frames_per_second'] = self.fps
-        else:
-            self.fps = 60
-        if 'display_traj' in kwargs.keys():
-            self.display_traj = kwargs['display_traj']
-        else:
-            self.display_traj = False
-        if 'display_traj_T' in kwargs.keys():
-            self.display_traj_T = kwargs['display_traj_T']
-        else:
-            self.display_traj_T = 0.1
+        self.n_rocks = kwargs.get('n_rocks',0)
+        self.n_rocks_obs = kwargs.get('n_rocks_obs',self.n_rocks)
+        self.obs_radius = kwargs.get('obs_radius',200)
+        self.fps = kwargs.get('FPS',60)
+        self.display_traj = kwargs.get('display_traj',False)
+        self.display_traj_T = kwargs.get('display_traj_T',0.1)
             
         self._seed()
         self.viewer = None
@@ -148,7 +125,6 @@ class ShipNavRocks(gym.Env):
         
         self.episode_number = 0
         self.stepnumber = 0
-        self.game_over = False
         self.throttle = 0
         self.thruster_angle = 0.0
         self.state = []
@@ -167,17 +143,13 @@ class ShipNavRocks(gym.Env):
         return [seed]
 
     def _destroy(self):
-        if not self.ship: return
-        self.world.DestroyBody(self.ship)
-        self.ship = None
-        self.world.DestroyBody(self.target)
-        self.target = None
+        if self.ship: self.world.DestroyBody(self.ship)
+        if self.target: self.world.DestroyBody(self.target)
         while self.rocks :
             self.world.DestroyBody(self.rocks.pop(0))
 
     def reset(self):
         self._destroy()
-        self.game_over = False
         self.throttle = 0
         self.thruster_angle = 0.0
         self.stepnumber = 0
@@ -218,7 +190,7 @@ class ShipNavRocks(gym.Env):
         while(getDistToRockfield(initial_x, initial_y) < 3*ROCK_RADIUS):
             initial_x, initial_y = np.random.uniform( [2*SHIP_HEIGHT ,2*SHIP_HEIGHT], [SEA_W-2*SHIP_HEIGHT,SEA_H-2*SHIP_HEIGHT])
 
-        initial_heading = np.random.uniform(0, math.pi)
+        initial_heading = np.random.uniform(0, 2*math.pi)
         
         # create target randomly, but not overlapping an existing rock
         targetX, targetY = np.random.uniform( [10*SHIP_HEIGHT ,10*SHIP_HEIGHT], [SEA_W-10*SHIP_HEIGHT,SEA_H-10*SHIP_HEIGHT])
@@ -261,7 +233,7 @@ class ShipNavRocks(gym.Env):
             angularDamping=0
         )
 
-        self.ship.color1 = rgb(230, 230, 230)
+        self.ship.color1 = getColor(idx=0)
         self.ship.linearVelocity = (0.0,0.0)
         self.ship.angularVelocity = 0
         self.ship.userData = {'name':'ship',
@@ -390,8 +362,8 @@ class ShipNavRocks(gym.Env):
         if self.viewer is None:
 
             self.viewer = rendering.Viewer(SEA_W, SEA_H)
-
-            water = rendering.FilledPolygon(((0, 0), (0, SEA_H), (SEA_W, SEA_H), (SEA_W, 0)))
+            
+            water = rendering.FilledPolygon(((-10*SEA_W, -10*SEA_H), (-10*SEA_W, 10*SEA_H), (10*SEA_W, 10*SEA_H), (10*SEA_W, -10*SEA_W)))
             self.water_color = rgb(126, 150, 233)
             water.set_color(*self.water_color)
             self.viewer.add_geom(water)
@@ -407,7 +379,7 @@ class ShipNavRocks(gym.Env):
             
             thruster.add_attr(self.thrustertrans) # add thruster angle
             thruster.add_attr(self.shiptrans) # add ship angle and ship position
-            thruster.set_color(1.0, 1.0, 0.0)
+            thruster.set_color(*self.ship.color1)
             
             self.viewer.add_geom(thruster)
             
@@ -421,11 +393,24 @@ class ShipNavRocks(gym.Env):
             COG.set_color(0.0, 0.0, 0.0)
             self.viewer.add_geom(COG)
             horizon = rendering.make_circle(radius=self.obs_radius, res=60, filled=False)
-            horizon.set_color(*rgb(200, 230, 255))
+            horizon.set_color(*self.ship.color1)
             horizon.add_attr(self.shiptrans) # add ship angle and ship position
 
             self.viewer.add_geom(horizon)
-
+        width_min = min(0,self.ship.position[0]-2*SHIP_HEIGHT)
+        width_max = max(SEA_W,self.ship.position[0]+2*SHIP_HEIGHT)
+        height_min = min(0,self.ship.position[1]-2*SHIP_HEIGHT)
+        height_max = max(SEA_H,self.ship.position[1]+2*SHIP_HEIGHT)
+        ratio_w = (width_max-width_min)/SEA_W
+        ratio_h = (height_max-height_min)/SEA_H
+        if ratio_w > ratio_h:
+            height_min *= ratio_w/ratio_h
+            height_max *= ratio_w/ratio_h
+        else:
+            width_min *= ratio_h/ratio_w
+            width_max *= ratio_h/ratio_w
+        
+        self.viewer.set_bounds(width_min,width_max,height_min,height_max)
         for obj in self.drawlist:
             for f in obj.fixtures:
                 trans = f.body.transform
@@ -439,9 +424,10 @@ class ShipNavRocks(gym.Env):
                     path = [trans * v for v in f.shape.vertices]
                     self.viewer.draw_polygon(path, color=obj.color1)
                 
-        for dot in self.traj:
+        for j,dot in enumerate(self.traj):
             t = rendering.Transform(translation=dot)
-            self.viewer.draw_circle(radius = 2, res=30, color = (0,50,0), filled=True).add_attr(t) 
+            alpha = 1-(len(self.traj)-j)/len(self.traj)
+            self.viewer.draw_circle(radius = 2, res=30, color = getColor(idx=0,alpha=alpha), filled=True).add_attr(t) 
             
         self.shiptrans.set_translation(*self.ship.position)
         self.shiptrans.set_rotation(self.ship.angle)

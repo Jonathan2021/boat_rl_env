@@ -16,3 +16,8 @@ register(
     id='ShipNav-v0',
     entry_point='shipNavEnv.envs:ShipNavRocks',
 )
+
+register(
+    id='ShipNav-v1',
+    entry_point='shipNavEnv.envs:ShipNavRocksMultiShips',
+)
