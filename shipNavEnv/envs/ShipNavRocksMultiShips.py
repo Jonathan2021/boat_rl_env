@@ -223,7 +223,6 @@ class ShipNavRocksMultiShips(gym.Env):
         
         initial_heading = np.random.uniform(0, 2*math.pi) #same heading for all ships
         for i in range(self.n_ships):
-            initial_heading = np.random.uniform(0, 2*math.pi) #same heading for all ships
             ship = self.world.CreateDynamicBody(
                 position=(initial_x, initial_y),
                 angle=initial_heading,
