@@ -3,18 +3,20 @@
 """
 Created on Tue Feb 13 10:19:52 2020
 
-@author: Gilles Foinet
+@author: gfo
 """
 
 import math
 import numpy as np
 import Box2D
-from Box2D.b2 import (circleShape, fixtureDef, polygonShape, contactListener)
+from Box2D.b2 import (edgeShape, circleShape, fixtureDef, polygonShape, revoluteJointDef, distanceJointDef, chainShape,
+                      contactListener)
 import gym
 from gym import spaces
 from gym.utils import seeding
-
+import pyglet
 """
+
 The objective of this environment is control a ship to reach a target
 
 STATE VARIABLES
@@ -41,42 +43,57 @@ Discrete control inputs are:
     - gimbal left
     - gimbal right
     - no action
-"""
 
-MAX_STEPS = 1000    # max steps for a simulation
-FPS = 60            # simulation framerate
+"""
+class DrawText:
+    def __init__(self, label:pyglet.text.Label):
+        self.label=label
+    def render(self):
+        self.label.draw()
+        
+        
+FPS = 60
 
 # THRUSTER
-THRUSTER_MIN_THROTTLE = 0.4 # [%]
+THRUSTER_MIN_THROTTLE = 0.0 # [%]
 THRUSTER_MAX_ANGLE = 0.4    # [rad]
 THRUSTER_MAX_FORCE = 3e4    # [N]
 
-THRUSTER_HEIGHT = 20        # [m]
-THRUSTER_WIDTH = 0.8        # [m]
+
+THRUSTER_HEIGHT = 20  # [m]
+THRUSTER_WIDTH = 0.8 # [m]
 
 # SHIP
-SHIP_HEIGHT = 20            # [m]
-SHIP_WIDTH = 5              # [m]
+SHIP_HEIGHT = 20    # [m]
+SHIP_WIDTH = 5      # [m]
 
 # SEA
-SEA_H = 900                 # [m]
-SEA_W = 1600                # [m]
+SEA_H = 900    # [m]
+SEA_W = 1600   # [m]
 
-# ship model
-# dummy parameters for fast simulation
-SHIP_MASS = 27e1            # [kg]
-SHIP_INERTIA = 280e1        # [kg.m²]
-Vmax = 300                  # [m/s]
-Rmax = 1*np.pi              #[rad/s]
+# ship model inspired by DP060
+SHIP_MASS = 27e1 # [kg]
+SHIP_INERTIA = 280e1 # [kg.m²]
+Vmax = 300 # [m/s]
+Rmax = 1*np.pi #[rad/s]
 K_Nr = (THRUSTER_MAX_FORCE*SHIP_HEIGHT*math.sin(THRUSTER_MAX_ANGLE)/(2*Rmax)) # [N.m/(rad/s)]
 K_Xu = THRUSTER_MAX_FORCE/Vmax # [N/(m/s)]
-K_Yv = 10*K_Xu              # [N/(m/s)]
+K_Yv = 10*K_Xu # [N/(m/s)]
 
 
 # ROCK
-ROCK_RADIUS = 20            # [m]
+ROCK_RADIUS = 20
 
-# return (distance, bearing) tuple of target relatively to ship
+# def getDistanceBearing(ship,target):
+#     x_distance = (target.position[0] - ship.position[0])
+#     y_distance = (target.position[1] - ship.position[1])
+#     distance = np.linalg.norm((x_distance, y_distance))
+#     angle = -(ship.angle + np.pi/2)
+#     u = x_distance*np.cos(angle) + y_distance*np.sin(angle)
+#     v = -x_distance*np.sin(angle) + y_distance*np.cos(angle)
+#     bearing = np.arctan2(v,u)
+#     return (distance, bearing)
+
 def getDistanceBearing(ship,target):
     COGpos = ship.GetWorldPoint(ship.localCenter)
     x_distance = (target.position[0] - COGpos[0])
@@ -86,7 +103,6 @@ def getDistanceBearing(ship,target):
     bearing = np.arctan2(localPos[0],localPos[1])
     return (distance, bearing)
 
-# collision handler
 class myContactListener(contactListener):
     def __init__(self):
         contactListener.__init__(self)
@@ -103,8 +119,7 @@ class myContactListener(contactListener):
     def PostSolve(self, contact, impulse):
         pass
 
-# gym env class
-class ShipNavRocks(gym.Env):
+class ShipNavigationWithObstaclesEnv(gym.Env):
     metadata = {
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second': FPS
@@ -119,23 +134,18 @@ class ShipNavRocks(gym.Env):
             self.n_rocks_obs = kwargs['n_rocks_obs']
         else:
             self.n_rocks_obs = self.n_rocks
-        if 'obs_radius' in kwargs.keys():
-            self.obs_radius = kwargs['obs_radius']
+        if 'obs_method' in kwargs.keys():
+            self.obs_method_id = kwargs['obs_method']
         else:
-            self.obs_radius = 200
-        if 'FPS' in kwargs.keys():
-            self.fps = kwargs['FPS']
-            self.metadata['video.frames_per_second'] = self.fps
+            self.obs_method_id = 0
+        if 'horizon' in kwargs.keys():
+            self.horizon = kwargs['horizon']
         else:
-            self.fps = 60
-        if 'display_traj' in kwargs.keys():
-            self.display_traj = kwargs['display_traj']
+            self.horizon = 100
+        if 'control_throttle' in kwargs.keys():
+            self.control_throttle = kwargs['control_throttle']
         else:
-            self.display_traj = False
-        if 'display_traj_T' in kwargs.keys():
-            self.display_traj_T = kwargs['display_traj_T']
-        else:
-            self.display_traj_T = 0.1
+            self.control_throttle = False
             
         self._seed()
         self.viewer = None
@@ -144,7 +154,6 @@ class ShipNavRocks(gym.Env):
         self.ship = None
         self.target = None
         self.rocks = []
-        self.ships = []
         
         self.episode_number = 0
         self.stepnumber = 0
@@ -157,9 +166,12 @@ class ShipNavRocks(gym.Env):
         self.drawlist = None
         
         self.observation_space = spaces.Box(-1.0,1.0,shape=(4 +2*self.n_rocks_obs,), dtype=np.float32)
-        self.action_space = spaces.Discrete(2)
-        
-        self.traj = []
+        if self.control_throttle:
+            self.action_space = spaces.MultiDiscrete([3,3])
+        else:
+            self.action_space = spaces.Discrete(3)
+            
+
         self.reset()
 
     def _seed(self, seed=None):
@@ -178,37 +190,27 @@ class ShipNavRocks(gym.Env):
     def reset(self):
         self._destroy()
         self.game_over = False
-        self.throttle = 0
+        self.throttle = 0.5
         self.thruster_angle = 0.0
         self.stepnumber = 0
         self.episode_reward = 0
         self.rocks = []
-        self.traj = []
 
         # create rock field randomly
         for i in range(self.n_rocks):
-            radius = np.random.uniform( 0.5*ROCK_RADIUS,2*ROCK_RADIUS)
+            
             rock =self.world.CreateStaticBody(
                 position=(np.random.uniform( 2*SHIP_HEIGHT, SEA_W-2*SHIP_HEIGHT), np.random.uniform( 2*SHIP_HEIGHT, SEA_H-2*SHIP_HEIGHT)),
                 angle=np.random.uniform( 0, 2*math.pi),
                 fixtures=fixtureDef(
-                    shape = circleShape(pos=(0,0),radius = radius),
-                categoryBits=0x0010,
-                maskBits=0x1111,
+                    shape = circleShape(pos=(0,0),radius = ROCK_RADIUS),
+                categoryBits=0x0001,
+                maskBits=0x0001,
                 restitution=1.0))
             rock.color1 = rgb(83, 43, 9) # brown
             rock.color2 = rgb(41, 14, 9) # darker brown
             rock.color3 = rgb(255, 255, 255) # seen
-            rock.userData = {'id':i,
-                             'name':'rock',
-                             'hit':False,
-                             'hit_with':'',
-                             'distance_to_ship':1.0,
-                             'bearing_from_ship':0.0,
-                             'seen':False,
-                             'in_range':False,
-                             'radius':radius}
-            
+            rock.userData = {'id':i,'name':'rock','hit':False,'hit_with':'','distance_to_ship':1.0,'bearing_from_ship':0.0,'seen':False}
             self.rocks.append(rock)
         
         getDistToRockfield = lambda x,y: np.asarray([np.sqrt((rock.position.x - x)**2 + (rock.position.y - y)**2) for rock in self.rocks]).min() if len(self.rocks) > 0 else np.inf # infinite distance if there is no rock field
@@ -232,41 +234,44 @@ class ShipNavRocks(gym.Env):
                 angle = 0.0,
                 fixtures = fixtureDef(
                         shape = circleShape(pos=(0,0),radius = ROCK_RADIUS),
-                        categoryBits=0x0010,
-                        maskBits=0x1111,
+                        categoryBits=0x0001,
+                        maskBits=0x0001,
                         restitution=0.1))
         self.target.color1 = rgb(255,0,0)
         self.target.color2 = rgb(0,255,0)
         self.target.color3 = rgb(255, 255, 255) # seen
-        self.target.userData = {'name':'target',
-                                'hit':False,
-                                'hit_with':'',
-                                'seen':True,
-                                'in_range':False}
-
+        self.target.userData = {'name':'target','hit':False,'hit_with':'','seen':True}
+                  
+            
+        
         self.ship = self.world.CreateDynamicBody(
             position=(initial_x, initial_y),
             angle=initial_heading,
             fixtures=fixtureDef(
-                shape=polygonShape(vertices=((-SHIP_WIDTH / 2, 0),
+                shape=polygonShape(vertices=[(-SHIP_WIDTH / 2, 0),
                                               (+SHIP_WIDTH / 2, 0),
                                               (SHIP_WIDTH / 2, +SHIP_HEIGHT),
                                               (0, +SHIP_HEIGHT*1.2),
-                                              (-SHIP_WIDTH / 2, +SHIP_HEIGHT))),
+                                              (-SHIP_WIDTH / 2, +SHIP_HEIGHT)]),
                 density=0.0,
-                categoryBits=0x0010,
-                maskBits=0x1111,
+                categoryBits=0x0001,
+                maskBits=0x0001,
                 restitution=0.0),
             linearDamping=0,
             angularDamping=0
         )
-
+        # horizon_circle = fixtureDef(shape = chainShape(vertices=[((self.horizon) * math.cos(alpha),(self.horizon) * math.sin(alpha)) for alpha in np.array(range(0,32))/32*2*math.pi]),
+        #                               density=0,
+        #                               categoryBits=0x0004,
+        #                               maskBits=0x0001,
+        #                               restitution=0.0)
+        
         self.ship.color1 = rgb(230, 230, 230)
+        self.ship.color2 = rgb(230, 23, 23)
+        self.ship.color3 = rgb(230, 23, 23)
         self.ship.linearVelocity = (0.0,0.0)
         self.ship.angularVelocity = 0
-        self.ship.userData = {'name':'ship',
-                              'hit':False,
-                              'hit_with':''}
+        self.ship.userData = {'name':'ship','hit':False,'hit_with':''}
         
          
         newMassData = self.ship.massData
@@ -275,28 +280,45 @@ class ShipNavRocks(gym.Env):
         newMassData.I = SHIP_INERTIA + SHIP_MASS*(newMassData.center[0]**2+newMassData.center[1]**2) # inertia is defined at origin location not localCenter
         self.ship.massData = newMassData
         
-        self.ships.append(self.ship)
-        self.drawlist = self.ships + [self.target] + self.rocks
+        self.drawlist = [self.ship, self.target] + self.rocks
         
-        return self.step(2)[0]
+        if self.control_throttle:
+            neutral_action = [2,2]
+        else:
+            neutral_action = 2
+            
+        return self.step(neutral_action)[0]
 
     def step(self, action):
-        done = False
-        state = []
-        # implement action
-        if action == 0:
-            self.thruster_angle += 0.01*60/(self.fps)
-        elif action == 1:
-            self.thruster_angle -= 0.01*60/(self.fps)
 
-        # thruster angle and throttle saturation
+        state = []
+        actionRudder = 2
+        actionThrottle = 2
+        if self.control_throttle:
+            actionRudder = action[0]
+            actionThrottle = action[1]
+        else:
+            actionRudder = action
+            actionThrottle = 2
+            
+        if actionRudder == 0:
+            self.thruster_angle += 0.01
+        elif actionRudder == 1:
+            self.thruster_angle -= 0.01
+            
+        if actionThrottle == 0:
+            self.throttle += 0.1
+        elif actionThrottle == 1:
+            self.throttle -= 0.1
+
         self.thruster_angle = np.clip(self.thruster_angle, -THRUSTER_MAX_ANGLE, THRUSTER_MAX_ANGLE)
-        self.throttle = np.clip(self.throttle, 0.0, 1.0)
+        self.throttle = np.clip(self.throttle, THRUSTER_MIN_THROTTLE, 1.0)
 
         # main engine force
+        force_pos = (self.ship.position[0], self.ship.position[1])
         COGpos = self.ship.GetWorldPoint(self.ship.localCenter)
-        force_thruster = (-np.sin(self.ship.angle + self.thruster_angle) * THRUSTER_MAX_FORCE,
-                  np.cos(self.ship.angle + self.thruster_angle) * THRUSTER_MAX_FORCE )
+        force_thruster = (-np.sin(self.ship.angle + self.thruster_angle)  * self.throttle * THRUSTER_MAX_FORCE,
+                  np.cos(self.ship.angle + self.thruster_angle) * self.throttle * THRUSTER_MAX_FORCE )
         
         localVelocity = self.ship.GetLocalVector(self.ship.linearVelocity)
 
@@ -305,50 +327,67 @@ class ShipNavRocks(gym.Env):
         force_damping = self.ship.GetWorldVector(force_damping_in_ship_frame)
         force_damping = (np.cos(self.ship.angle)* force_damping_in_ship_frame[0] -np.sin(self.ship.angle) * force_damping_in_ship_frame[1],
                   np.sin(self.ship.angle)* force_damping_in_ship_frame[0] + np.cos(self.ship.angle) * force_damping_in_ship_frame[1] )
-        
+        force_total = tuple(map(lambda x, y: x + y, force_thruster, force_damping))
+
         torque_damping = -self.ship.angularVelocity *K_Nr
 
         self.ship.ApplyTorque(torque=torque_damping,wake=False)
         self.ship.ApplyForce(force=force_thruster, point=self.ship.position, wake=False)
         self.ship.ApplyForce(force=force_damping, point=COGpos, wake=False)
         
-        # one step forward
-        self.world.Step(1.0 / self.fps, 60, 60)
-
-        # state construction
+        self.world.Step(1.0 / FPS, 60, 60)
+        
+        pos = self.ship.position
+        angle = self.ship.angle+np.pi/2
+        vel_l = np.array(self.ship.linearVelocity)
+        vel_a = self.ship.angularVelocity
+            
+    #- distance to target (ship's frame)
+    #- target bearing
+    #- angular velocity
+    #- gimbal angle
         norm_pos = np.max((SEA_W,SEA_H))
+        
         distance_t, bearing_t = getDistanceBearing(self.ship,self.target)
         
         #state += list(np.asarray(self.ship.GetLocalVector(self.ship.linearVelocity))/Vmax)
+        state.append(self.throttle)
         state.append(self.ship.angularVelocity/Rmax)
         state.append(self.thruster_angle / THRUSTER_MAX_ANGLE)
         state.append(distance_t/norm_pos)
         state.append(bearing_t/np.pi)
         
+        rocks_obs = []
         for rock in self.rocks:
             distance, bearing = getDistanceBearing(self.ship,rock)
-            distance = np.maximum(distance-rock.userData['radius'],0)
+            distance = np.maximum(distance-ROCK_RADIUS,0)
             rock.userData['distance_to_ship'] = distance/norm_pos
             rock.userData['bearing_from_ship'] = bearing/np.pi
-            rock.userData['in_range'] = True if distance < self.obs_radius else False
         
         # sort rocks from closest to farthest
         self.rocks.sort(key=lambda x:x.userData['distance_to_ship'])
         
         # set 'seen' bool
-        for i in range(self.n_rocks_obs):
-            if self.rocks[i].userData['in_range']:
-                self.rocks[i].userData['seen']=True 
-                state.append(self.rocks[i].userData['distance_to_ship'])
-                state.append(self.rocks[i].userData['bearing_from_ship'])
-            else: #if closest rocks are outside horizon, fill observation with rocks infinitely far on the ship axis
-                self.rocks[i].userData['seen']=False
-                state.append(1)
-                state.append(0)
+        for rock in self.rocks[:self.n_rocks_obs]:
+            rock.userData['seen']=True
+            state.append(rock.userData['distance_to_ship'])
+            state.append(rock.userData['bearing_from_ship'])
+        
         for rock in self.rocks[self.n_rocks_obs:]:
             rock.userData['seen']=False
 
+        
+        # # print state
+        # if self.viewer is not None:
+        #     print('\t'.join(["{:7.3}".format(s) for s in state]))
+
         # REWARD -------------------------------------------------------------------------------------------------------
+
+        # state variables for reward
+        
+        
+        done = False
+        
         self.reward = 0
         
         if self.ship.userData['hit']:
@@ -360,8 +399,7 @@ class ShipNavRocks(gym.Env):
         else:   # general case, we're trying to reach target so being close should be rewarded
             self.reward = (distance_t/norm_pos)/1000
         
-        # limits episode to MAX_STEPS
-        if self.stepnumber >= MAX_STEPS:
+        if self.stepnumber > 1000:
             done = True
 
         self.episode_reward += self.reward
@@ -370,12 +408,6 @@ class ShipNavRocks(gym.Env):
 
         self.stepnumber += 1
         self.state = np.array(state, dtype=np.float32)
-        
-        #render trajectory
-        if self.display_traj:
-            if self.stepnumber % int(self.display_traj_T*self.fps) == 0:
-                self.traj.append(COGpos)
-        
         return self.state, self.reward, done, {}
 
     def render(self, mode='human', close=False):
@@ -390,12 +422,26 @@ class ShipNavRocks(gym.Env):
         if self.viewer is None:
 
             self.viewer = rendering.Viewer(SEA_W, SEA_H)
-
+            
+            self.reward_label = pyglet.text.Label('', font_size=36,
+                x=SEA_W, y=SEA_H, anchor_x='right', anchor_y='top',
+                color=(255,255,255,255))
+            self.total_reward_label = pyglet.text.Label('', font_size=36,
+                x=SEA_W, y=SEA_H-50, anchor_x='right', anchor_y='top',
+                color=(255,255,255,255))
+            self.score_label_3 = pyglet.text.Label('', font_size=36,
+                x=SEA_W, y=SEA_H-100, anchor_x='right', anchor_y='top',
+                color=(255,255,255,255))
+            self.state_label = pyglet.text.Label('', font_size=36,
+                x=SEA_W, y=0, anchor_x='right', anchor_y='bottom',
+                color=(255,255,255,255))
+            
             water = rendering.FilledPolygon(((0, 0), (0, SEA_H), (SEA_W, SEA_H), (SEA_W, 0)))
             self.water_color = rgb(126, 150, 233)
             water.set_color(*self.water_color)
+            self.water_color_half_transparent = np.array((np.array(self.water_color) + rgb(255, 255, 255))) / 2
             self.viewer.add_geom(water)
-            
+
             self.shiptrans = rendering.Transform()
             self.thrustertrans = rendering.Transform()
             self.COGtrans = rendering.Transform()
@@ -410,7 +456,7 @@ class ShipNavRocks(gym.Env):
             thruster.set_color(1.0, 1.0, 0.0)
             
             self.viewer.add_geom(thruster)
-            
+        
             COG = rendering.FilledPolygon(((-THRUSTER_WIDTH / 0.2, 0),
                                             (0, -THRUSTER_WIDTH/0.2),
                                               (THRUSTER_WIDTH / 0.2, 0),
@@ -420,33 +466,36 @@ class ShipNavRocks(gym.Env):
             
             COG.set_color(0.0, 0.0, 0.0)
             self.viewer.add_geom(COG)
-            horizon = rendering.make_circle(radius=self.obs_radius, res=60, filled=False)
-            horizon.set_color(*rgb(200, 230, 255))
-            horizon.add_attr(self.shiptrans) # add ship angle and ship position
-
-            self.viewer.add_geom(horizon)
-
+            self.viewer.add_geom(DrawText(self.reward_label))
+            self.viewer.add_geom(DrawText(self.total_reward_label))
+            self.viewer.add_geom(DrawText(self.score_label_3))
+            self.viewer.add_geom(DrawText(self.state_label))
+            
+        
         for obj in self.drawlist:
             for f in obj.fixtures:
                 trans = f.body.transform
                 if type(f.shape) is circleShape:
                     t = rendering.Transform(translation=trans*f.shape.pos)
-                    self.viewer.draw_circle(f.shape.radius, 30, color= (obj.color1 if f.body.userData['hit'] else (obj.color2 if f.body.userData['seen'] else obj.color3))).add_attr(t)
-                    self.viewer.draw_circle(f.shape.radius, 30, color= (obj.color2 if f.body.userData['hit'] else (obj.color3 if f.body.userData['seen'] else obj.color2)), filled=False, linewidth=2).add_attr(t)
-                    self.viewer.draw_circle(f.shape.radius, 30, color= (obj.color1 if f.body.userData['in_range'] else obj.color3)).add_attr(t)
-                    self.viewer.draw_circle(f.shape.radius, 30, color= (obj.color3 if f.body.userData['in_range'] else obj.color1), filled=False, linewidth=2).add_attr(t)
+                    if 'seen' in f.body.userData.keys():
+                        self.viewer.draw_circle(f.shape.radius, 30, color= (obj.color1 if f.body.userData['hit'] else (obj.color2 if f.body.userData['seen'] else obj.color3))).add_attr(t)
+                        self.viewer.draw_circle(f.shape.radius, 30, color= (obj.color2 if f.body.userData['hit'] else (obj.color3 if f.body.userData['seen'] else obj.color2)), filled=False, linewidth=2).add_attr(t)
+                    else:
+                        self.viewer.draw_circle(f.shape.radius, 30, color= obj.color1).add_attr(t)
                 else:   
                     path = [trans * v for v in f.shape.vertices]
                     self.viewer.draw_polygon(path, color=obj.color1)
                 
-        for dot in self.traj:
-            t = rendering.Transform(translation=dot)
-            self.viewer.draw_circle(radius = 2, res=30, color = (0,50,0), filled=True).add_attr(t) 
-            
+
         self.shiptrans.set_translation(*self.ship.position)
         self.shiptrans.set_rotation(self.ship.angle)
         self.thrustertrans.set_rotation(self.thruster_angle)
         self.COGtrans.set_translation(*self.ship.localCenter)
+        
+        self.reward_label.text = "%1.4f" % self.reward
+        self.total_reward_label.text = "%1.4f" % self.episode_reward
+        self.score_label_3.text = ""
+        self.state_label.text = " ".join(['state: '] + ['{:.2f}'.format(x) for x in self.state[:]])
         
         return self.viewer.render(return_rgb_array=mode == 'rgb_array')
 
