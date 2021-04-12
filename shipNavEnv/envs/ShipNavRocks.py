@@ -20,9 +20,7 @@ The objective of this environment is control a ship to reach a target
 
 STATE VARIABLES
 The state consists of the following variables:
-    - ship's velocity on it's sway axis
-    - ship's velocity on its surge axis
-    - angular velocity
+    - angular velocity normalized
     - thruster angle normalized
     - distance to target (ship's frame) normalized
     - target bearing normalized
@@ -84,7 +82,7 @@ def getDistanceBearing(ship,target):
     y_distance = (target.position[1] - COGpos[1])
     localPos = ship.GetLocalVector((x_distance,y_distance))
     distance = np.linalg.norm(localPos)
-    bearing = np.arctan2(localPos[0],localPos[1])
+    bearing = np.arctan2(localPos[0], localPos[1])
     return (distance, bearing)
 
 # collision handler
@@ -107,6 +105,9 @@ class myContactListener(contactListener):
 class ShipNavRocks(gym.Env):
 
     def __init__(self,**kwargs):
+        
+        # Configuration
+        # FIXME: Should move kwargs access in some configure function, can keep it in dict form (with defaults) and then iterate on keys
         self.n_rocks = kwargs.get('n_rocks',0)
         self.n_rocks_obs = kwargs.get('n_rocks_obs',self.n_rocks)
         self.obs_radius = kwargs.get('obs_radius',200)
@@ -114,7 +115,7 @@ class ShipNavRocks(gym.Env):
         self.display_traj = kwargs.get('display_traj',False)
         self.display_traj_T = kwargs.get('display_traj_T',0.1)
             
-        self._seed()
+        self.seed()
         self.viewer = None
         self.world = Box2D.b2World(gravity=(0,0),
             contactListener=myContactListener())
@@ -123,6 +124,8 @@ class ShipNavRocks(gym.Env):
         self.rocks = []
         self.ships = []
         
+        # inital conditions
+        # FIXME: Redundant with reset()
         self.episode_number = 0
         self.stepnumber = 0
         self.throttle = 0
@@ -131,14 +134,18 @@ class ShipNavRocks(gym.Env):
         self.reward = 0
         self.episode_reward = 0
         self.drawlist = None
-        
-        self.observation_space = spaces.Box(-1.0,1.0,shape=(4 +2*self.n_rocks_obs,), dtype=np.float32)
-        self.action_space = spaces.Discrete(2)
-        
         self.traj = []
+        self.state = None
+        
+        # Observation are continuous in [-1, 1] 
+        self.observation_space = spaces.Box(-1.0,1.0,shape=(4 +2*self.n_rocks_obs,), dtype=np.float32)
+        
+        # Left or Right (or nothing)
+        self.action_space = spaces.Discrete(2)
+       
         self.reset()
 
-    def _seed(self, seed=None):
+    def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
@@ -157,16 +164,18 @@ class ShipNavRocks(gym.Env):
         self.rocks = []
         self.traj = []
 
+
+        # FIXME Should have a procedure for object creation and making sure they don't overlap
         # create rock field randomly
         for i in range(self.n_rocks):
             radius = np.random.uniform( 0.5*ROCK_RADIUS,2*ROCK_RADIUS)
             rock =self.world.CreateStaticBody(
-                position=(np.random.uniform( 2*SHIP_HEIGHT, SEA_W-2*SHIP_HEIGHT), np.random.uniform( 2*SHIP_HEIGHT, SEA_H-2*SHIP_HEIGHT)),
-                angle=np.random.uniform( 0, 2*math.pi),
+                position=(np.random.uniform(0, SEA_W), np.random.uniform(0, SEA_H)), # FIXME Should have something like: map.get_random_available_position()
+                angle=np.random.uniform( 0, 2*math.pi), # FIXME Not really useful if circle shaped
                 fixtures=fixtureDef(
-                    shape = circleShape(pos=(0,0),radius = radius),
-                categoryBits=0x0010,
-                maskBits=0x1111,
+                shape = circleShape(pos=(0,0),radius = radius),
+                categoryBits=0x0010, # FIXME Move categories to MACRO
+                maskBits=0x1111, # FIXME Same as above + it can collide with itself -> may cause problem when generating map ?
                 restitution=1.0))
             rock.color1 = rgb(83, 43, 9) # brown
             rock.color2 = rgb(41, 14, 9) # darker brown
@@ -175,7 +184,7 @@ class ShipNavRocks(gym.Env):
                              'name':'rock',
                              'hit':False,
                              'hit_with':'',
-                             'distance_to_ship':1.0,
+                             'distance_to_ship':1.0, # FIXME are the 4 lines, including this one, used in any way?
                              'bearing_from_ship':0.0,
                              'seen':False,
                              'in_range':False,
@@ -185,18 +194,20 @@ class ShipNavRocks(gym.Env):
         
         getDistToRockfield = lambda x,y: np.asarray([np.sqrt((rock.position.x - x)**2 + (rock.position.y - y)**2) for rock in self.rocks]).min() if len(self.rocks) > 0 else np.inf # infinite distance if there is no rock field
         
-        # create target randomly, but not overlapping an existing rock
-        initial_x, initial_y = np.random.uniform( [2*SHIP_HEIGHT ,2*SHIP_HEIGHT], [SEA_W-2*SHIP_HEIGHT,SEA_H-2*SHIP_HEIGHT])
-        while(getDistToRockfield(initial_x, initial_y) < 3*ROCK_RADIUS):
-            initial_x, initial_y = np.random.uniform( [2*SHIP_HEIGHT ,2*SHIP_HEIGHT], [SEA_W-2*SHIP_HEIGHT,SEA_H-2*SHIP_HEIGHT])
+
+        # create boat position randomly, but not overlapping an existing rock
+        initial_x, initial_y = np.random.uniform( [0 , 0], [SEA_W, SEA_H])
+        while(getDistToRockfield(initial_x, initial_y) < 2*ROCK_RADIUS):
+            initial_x, initial_y = np.random.uniform( [0 ,0], [SEA_W, SEA_H])
 
         initial_heading = np.random.uniform(0, 2*math.pi)
         
         # create target randomly, but not overlapping an existing rock
-        targetX, targetY = np.random.uniform( [10*SHIP_HEIGHT ,10*SHIP_HEIGHT], [SEA_W-10*SHIP_HEIGHT,SEA_H-10*SHIP_HEIGHT])
+        targetX, targetY = np.random.uniform( [0 , 0], [SEA_W, SEA_H])
 
-        while(getDistToRockfield(targetX,targetY) < 3*ROCK_RADIUS):
-            targetX, targetY = np.random.uniform( [10*SHIP_HEIGHT ,10*SHIP_HEIGHT], [SEA_W-10*SHIP_HEIGHT,SEA_H-10*SHIP_HEIGHT])
+        #FIXME Repeats itself 
+        while(getDistToRockfield(targetX,targetY) < 2*ROCK_RADIUS):
+            targetX, targetY = np.random.uniform( [0, 0], [SEA_W, SEA_H])
         
           
         self.target = self.world.CreateStaticBody(
@@ -226,7 +237,7 @@ class ShipNavRocks(gym.Env):
                                               (0, +SHIP_HEIGHT*1.2),
                                               (-SHIP_WIDTH / 2, +SHIP_HEIGHT))),
                 density=0.0,
-                categoryBits=0x0010,
+                categoryBits=0x0010, #FIXME Same category as rocks ?
                 maskBits=0x1111,
                 restitution=0.0),
             linearDamping=0,
@@ -243,21 +254,21 @@ class ShipNavRocks(gym.Env):
          
         newMassData = self.ship.massData
         newMassData.mass = SHIP_MASS
-        newMassData.center = (0.0,SHIP_HEIGHT/2)
+        newMassData.center = (0.0,SHIP_HEIGHT/2) #FIXME Is this the correct center of mass ?
         newMassData.I = SHIP_INERTIA + SHIP_MASS*(newMassData.center[0]**2+newMassData.center[1]**2) # inertia is defined at origin location not localCenter
         self.ship.massData = newMassData
         
         self.ships.append(self.ship)
         self.drawlist = self.ships + [self.target] + self.rocks
         
-        return self.step(2)[0]
+        return self.step(2)[0] #FIXME Doesn't that mean we already do one time step ? Expected behavior ?
 
     def step(self, action):
         done = False
         state = []
         # implement action
         if action == 0:
-            self.thruster_angle += 0.01*60/(self.fps)
+            self.thruster_angle += 0.01*60/(self.fps) # FIXME: Put this inside a func + use a macro
         elif action == 1:
             self.thruster_angle -= 0.01*60/(self.fps)
 
@@ -267,6 +278,7 @@ class ShipNavRocks(gym.Env):
 
         # main engine force
         COGpos = self.ship.GetWorldPoint(self.ship.localCenter)
+
         force_thruster = (-np.sin(self.ship.angle + self.thruster_angle) * THRUSTER_MAX_FORCE,
                   np.cos(self.ship.angle + self.thruster_angle) * THRUSTER_MAX_FORCE )
         
@@ -285,29 +297,31 @@ class ShipNavRocks(gym.Env):
         self.ship.ApplyForce(force=force_damping, point=COGpos, wake=False)
         
         # one step forward
-        self.world.Step(1.0 / self.fps, 60, 60)
+        self.world.Step(1.0 / self.fps, 60, 60) #FIXME Not sure velocityIterations and positionIterations are supposed to be 60.
 
         # state construction
-        norm_pos = np.max((SEA_W,SEA_H))
+        norm_pos = np.max((SEA_W, SEA_H))
         distance_t, bearing_t = getDistanceBearing(self.ship,self.target)
         
+        # Normalized ship states
         #state += list(np.asarray(self.ship.GetLocalVector(self.ship.linearVelocity))/Vmax)
         state.append(self.ship.angularVelocity/Rmax)
         state.append(self.thruster_angle / THRUSTER_MAX_ANGLE)
-        state.append(distance_t/norm_pos)
-        state.append(bearing_t/np.pi)
+        state.append(distance_t/norm_pos) #FIXME Not in [-1,1]
+        state.append(bearing_t/np.pi) #FIXME In [-1,1] only if bearing in -pi, pi (could be in 0, 2*pi)
         
         for rock in self.rocks:
             distance, bearing = getDistanceBearing(self.ship,rock)
-            distance = np.maximum(distance-rock.userData['radius'],0)
-            rock.userData['distance_to_ship'] = distance/norm_pos
+            distance = np.maximum(distance-rock.userData['radius'],0) #FIXME Is this useful ? If ship collides with rock, the engine notifies us right? + We don't take into account the ships geometry.
+            rock.userData['distance_to_ship'] = distance/norm_pos #FIXME Same problem as before, not in -1, 1
             rock.userData['bearing_from_ship'] = bearing/np.pi
-            rock.userData['in_range'] = True if distance < self.obs_radius else False
+            rock.userData['in_range'] = True if distance < self.obs_radius else False #FIXME From center of ship center to center of rock. Meaning it wouldn't see very large rocks
         
         # sort rocks from closest to farthest
         self.rocks.sort(key=lambda x:x.userData['distance_to_ship'])
         
         # set 'seen' bool
+        #FIXME Could be done in previous loop (a bit more efficient)
         for i in range(self.n_rocks_obs):
             if self.rocks[i].userData['in_range']:
                 self.rocks[i].userData['seen']=True 
@@ -315,11 +329,12 @@ class ShipNavRocks(gym.Env):
                 state.append(self.rocks[i].userData['bearing_from_ship'])
             else: #if closest rocks are outside horizon, fill observation with rocks infinitely far on the ship axis
                 self.rocks[i].userData['seen']=False
-                state.append(1)
+                state.append(1) #FIXME Maybe don't include them in state instead of choosing arbitrary values
                 state.append(0)
         for rock in self.rocks[self.n_rocks_obs:]:
             rock.userData['seen']=False
 
+        #FIXME Separate function
         # REWARD -------------------------------------------------------------------------------------------------------
         self.reward = 0
         
@@ -330,7 +345,7 @@ class ShipNavRocks(gym.Env):
                 self.reward = -1 #high negative reward. hitting anything else than target is bad
             done = True
         else:   # general case, we're trying to reach target so being close should be rewarded
-            self.reward = (distance_t/norm_pos)/1000
+            self.reward = (distance_t/norm_pos)/1000 # FIXME Macro instead of magic number
         
         # limits episode to MAX_STEPS
         if self.stepnumber >= MAX_STEPS:
@@ -343,9 +358,10 @@ class ShipNavRocks(gym.Env):
         self.stepnumber += 1
         self.state = np.array(state, dtype=np.float32)
         
+        #FIXME separate function
         #render trajectory
         if self.display_traj:
-            if self.stepnumber % int(self.display_traj_T*self.fps) == 0:
+            if self.stepnumber % int(self.display_traj_T*self.fps) == 0: #FIXME If fps is low then int(<1) -> Division by 0 error. Should Take math.ceil instead or something.
                 self.traj.append(COGpos)
         
         return self.state, self.reward, done, {}
@@ -364,7 +380,7 @@ class ShipNavRocks(gym.Env):
             self.viewer = rendering.Viewer(SEA_W, SEA_H)
             
             water = rendering.FilledPolygon(((-10*SEA_W, -10*SEA_H), (-10*SEA_W, 10*SEA_H), (10*SEA_W, 10*SEA_H), (10*SEA_W, -10*SEA_W)))
-            self.water_color = rgb(126, 150, 233)
+            self.water_color = rgb(126, 150, 233) #FIXME Why store it in self ? Check for other things like this
             water.set_color(*self.water_color)
             self.viewer.add_geom(water)
             
@@ -377,8 +393,8 @@ class ShipNavRocks(gym.Env):
                                               (THRUSTER_WIDTH / 2, -THRUSTER_HEIGHT),
                                               (-THRUSTER_WIDTH / 2, -THRUSTER_HEIGHT)))
             
-            thruster.add_attr(self.thrustertrans) # add thruster angle
-            thruster.add_attr(self.shiptrans) # add ship angle and ship position
+            thruster.add_attr(self.thrustertrans) # add thruster angle, assigned later
+            thruster.add_attr(self.shiptrans) # add ship angle and ship position, assigned later
             thruster.set_color(*self.ship.color1)
             
             self.viewer.add_geom(thruster)
@@ -397,6 +413,10 @@ class ShipNavRocks(gym.Env):
             horizon.add_attr(self.shiptrans) # add ship angle and ship position
 
             self.viewer.add_geom(horizon)
+
+        
+        #FIXME Feels pretty hacky, should check on that later
+        # Adjusting window
         width_min = min(0,self.ship.position[0]-2*SHIP_HEIGHT)
         width_max = max(SEA_W,self.ship.position[0]+2*SHIP_HEIGHT)
         height_min = min(0,self.ship.position[1]-2*SHIP_HEIGHT)
@@ -411,6 +431,8 @@ class ShipNavRocks(gym.Env):
             width_max *= ratio_h/ratio_w
         
         self.viewer.set_bounds(width_min,width_max,height_min,height_max)
+        
+
         for obj in self.drawlist:
             for f in obj.fixtures:
                 trans = f.body.transform
