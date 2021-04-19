@@ -299,7 +299,7 @@ class ShipNavRocks(gym.Env):
     def step(self, action):
         done = False
         state = []
-        print('ACTION %d' % action)
+        #print('ACTION %d' % action)
         assert self.action_space.contains(action), "%r (%s) invalid " % (action, type(action))
         # implement action
         if action == 0:
@@ -344,18 +344,21 @@ class ShipNavRocks(gym.Env):
         # state construction
         norm_pos = np.max((SEA_W, SEA_H))
         distance_t, bearing_t = getDistanceBearing(self.ship,self.target)
+        #print(bearing_t)
+        #print(distance_t)
         
         # Normalized ship states
         #state += list(np.asarray(self.ship.GetLocalVector(self.ship.linearVelocity))/Vmax)
         state.append(self.ship.angularVelocity/Rmax)
         state.append(self.thruster_angle / THRUSTER_MAX_ANGLE)
-        state.append(distance_t/norm_pos) #FIXME Not in [-1,1]
-        state.append(bearing_t/np.pi) #FIXME In [-1,1] only if bearing in -pi, pi (could be in 0, 2*pi)
+        standardized_dist = (2* distance_t / norm_pos)  - 1
+        state.append(standardized_dist) #FIXME Not in [-1,1]
+        state.append(bearing_t/np.pi)
         
         for rock in self.rocks:
             distance, bearing = getDistanceBearing(self.ship,rock)
             distance = np.maximum(distance-rock.userData['radius'],0) #FIXME Is this useful ? If ship collides with rock, the engine notifies us right? + We don't take into account the ships geometry.
-            rock.userData['distance_to_ship'] = distance/norm_pos #FIXME Same problem as before, not in -1, 1
+            rock.userData['distance_to_ship'] = 2 * distance/norm_pos - 1
             rock.userData['bearing_from_ship'] = bearing/np.pi
             rock.userData['in_range'] = True if distance < self.obs_radius else False #FIXME From center of ship center to center of rock. Meaning it wouldn't see very large rocks
         
@@ -379,7 +382,7 @@ class ShipNavRocks(gym.Env):
         #FIXME Separate function
         # REWARD -------------------------------------------------------------------------------------------------------
         self.reward = 0
-        print(distance_t)
+        #print(distance_t)
         
         if self.ship.userData['hit']:
             if(self.ship.userData['hit_with']=='target'):
@@ -388,8 +391,8 @@ class ShipNavRocks(gym.Env):
                 self.reward = -1 #high negative reward. hitting anything else than target is bad
             done = True
         else:   # general case, we're trying to reach target so being close should be rewarded
-            self.reward = -(distance_t/norm_pos)#/1000 # FIXME Macro instead of magic number
-            print(self.reward)
+            self.reward = - ((2* distance_t / norm_pos)  - 1) / MAX_STEPS # FIXME Macro instead of magic number
+            #print(self.reward)
         
         # limits episode to MAX_STEPS
         if self.stepnumber >= MAX_STEPS:
@@ -407,6 +410,8 @@ class ShipNavRocks(gym.Env):
         if self.display_traj:
             if self.stepnumber % int(self.display_traj_T*self.fps) == 0: #FIXME If fps is low then int(<1) -> Division by 0 error. Should Take math.ceil instead or something.
                 self.traj.append(COGpos)
+
+        print(state)
         
         return self.state, self.reward, done, {}
 
