@@ -86,14 +86,17 @@ def getDistanceBearing(ship,target):
     return (distance, bearing)
 
 # collision handler
-class myContactListener(contactListener):
-    def __init__(self):
+class ContactDetector(contactListener):
+    def __init__(self, env):
         contactListener.__init__(self)
+        self.env = env
+
     def BeginContact(self, contact):
         contact.fixtureA.body.userData['hit'] = True
         contact.fixtureA.body.userData['hit_with'] = contact.fixtureB.body.userData['name']
         contact.fixtureB.body.userData['hit'] = True
         contact.fixtureB.body.userData['hit_with'] = contact.fixtureA.body.userData['name']
+        #print('There was a contact!')
     def EndContact(self, contact):
         pass
     def PreSolve(self, contact, oldManifold):
@@ -108,17 +111,13 @@ class ShipNavRocks(gym.Env):
         
         # Configuration
         # FIXME: Should move kwargs access in some configure function, can keep it in dict form (with defaults) and then iterate on keys
-        self.n_rocks = kwargs.get('n_rocks',0)
-        self.n_rocks_obs = kwargs.get('n_rocks_obs',self.n_rocks)
-        self.obs_radius = kwargs.get('obs_radius',200)
-        self.fps = kwargs.get('FPS',60)
-        self.display_traj = kwargs.get('display_traj',False)
-        self.display_traj_T = kwargs.get('display_traj_T',0.1)
-            
+        #FIXME: Defaults should be in var
+        self._read_kwargs(**kwargs)
+           
         self.seed()
         self.viewer = None
         self.world = Box2D.b2World(gravity=(0,0),
-            contactListener=myContactListener())
+            contactListener=ContactDetector(self))
         self.ship = None
         self.target = None
         self.rocks = []
@@ -141,32 +140,48 @@ class ShipNavRocks(gym.Env):
         self.observation_space = spaces.Box(-1.0,1.0,shape=(4 +2*self.n_rocks_obs,), dtype=np.float32)
         
         # Left or Right (or nothing)
-        self.action_space = spaces.Discrete(2)
+        self.action_space = spaces.Discrete(3)
        
         self.reset()
+
+    def _read_kwargs(self, **kwargs):
+        n_rocks_default = 0
+        self.n_rocks = kwargs.get('n_rocks',n_rocks_default)
+
+        n_rocks_obs_default = self.n_rocks
+        self.n_rocks_obs = kwargs.get('n_rocks_obs', n_rocks_obs_default)
+
+        obs_radius_default = 200
+        self.obs_radius = kwargs.get('obs_radius', obs_radius_default)
+        
+        fps_default = FPS
+        self.fps = kwargs.get('FPS', fps_default)
+
+        display_traj_default = False
+        self.display_traj = kwargs.get('display_traj', display_traj_default)
+
+        display_traj_T_default = 0.1
+        self.display_traj_T = kwargs.get('display_traj_T', display_traj_T_default)
+         
+
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
     def _destroy(self):
+        self.world.contactListener = None
+
         if self.ship: self.world.DestroyBody(self.ship)
         if self.target: self.world.DestroyBody(self.target)
         while self.rocks :
             self.world.DestroyBody(self.rocks.pop(0))
 
-    def reset(self):
-        self._destroy()
-        self.throttle = 0
-        self.thruster_angle = 0.0
-        self.stepnumber = 0
-        self.episode_reward = 0
+        self.ship = None
+        self.target = None
         self.rocks = []
-        self.traj = []
-
-
-        # FIXME Should have a procedure for object creation and making sure they don't overlap
-        # create rock field randomly
+    
+    def _create_map(self):
         for i in range(self.n_rocks):
             radius = np.random.uniform( 0.5*ROCK_RADIUS,2*ROCK_RADIUS)
             rock =self.world.CreateStaticBody(
@@ -251,7 +266,25 @@ class ShipNavRocks(gym.Env):
                               'hit':False,
                               'hit_with':''}
         
-         
+
+
+    def reset(self):
+        self._destroy()
+
+        self.world.contactListener_keepref = ContactDetector(self)
+        self.world.contactListener = self.world.contactListener_keepref
+
+
+        self.throttle = 0
+        self.thruster_angle = 0.0
+        self.stepnumber = 0
+        self.episode_reward = 0
+        self.rocks = []
+        self.traj = []
+
+        self._create_map()
+
+                 
         newMassData = self.ship.massData
         newMassData.mass = SHIP_MASS
         newMassData.center = (0.0,SHIP_HEIGHT/2) #FIXME Is this the correct center of mass ?
@@ -266,11 +299,14 @@ class ShipNavRocks(gym.Env):
     def step(self, action):
         done = False
         state = []
+        print('ACTION %d' % action)
+        assert self.action_space.contains(action), "%r (%s) invalid " % (action, type(action))
         # implement action
         if action == 0:
             self.thruster_angle += 0.01*60/(self.fps) # FIXME: Put this inside a func + use a macro
         elif action == 1:
             self.thruster_angle -= 0.01*60/(self.fps)
+
 
         # thruster angle and throttle saturation
         self.thruster_angle = np.clip(self.thruster_angle, -THRUSTER_MAX_ANGLE, THRUSTER_MAX_ANGLE)
@@ -295,9 +331,15 @@ class ShipNavRocks(gym.Env):
         self.ship.ApplyTorque(torque=torque_damping,wake=False)
         self.ship.ApplyForce(force=force_thruster, point=self.ship.position, wake=False)
         self.ship.ApplyForce(force=force_damping, point=COGpos, wake=False)
+
+
+        ### DEBUG ###
+        #print('Step: %d \nShip: %s\nLocals: %s' % (self.stepnumber, self.ship, locals()))
         
         # one step forward
-        self.world.Step(1.0 / self.fps, 60, 60) #FIXME Not sure velocityIterations and positionIterations are supposed to be 60.
+        velocityIterations = 8
+        positionIterations = 3
+        self.world.Step(1.0 / self.fps, velocityIterations, positionIterations)
 
         # state construction
         norm_pos = np.max((SEA_W, SEA_H))
@@ -337,6 +379,7 @@ class ShipNavRocks(gym.Env):
         #FIXME Separate function
         # REWARD -------------------------------------------------------------------------------------------------------
         self.reward = 0
+        print(distance_t)
         
         if self.ship.userData['hit']:
             if(self.ship.userData['hit_with']=='target'):
@@ -345,7 +388,8 @@ class ShipNavRocks(gym.Env):
                 self.reward = -1 #high negative reward. hitting anything else than target is bad
             done = True
         else:   # general case, we're trying to reach target so being close should be rewarded
-            self.reward = (distance_t/norm_pos)/1000 # FIXME Macro instead of magic number
+            self.reward = -(distance_t/norm_pos)#/1000 # FIXME Macro instead of magic number
+            print(self.reward)
         
         # limits episode to MAX_STEPS
         if self.stepnumber >= MAX_STEPS:
