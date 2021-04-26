@@ -1,8 +1,8 @@
-from Box2D.b2 import fixtureDef, polygonShape
+from Box2D.b2 import fixtureDef, polygonShape, circleShape
 import numpy as np
 import math
 import abc
-from shipNavEnv.envs.utils import getColor
+from shipNavEnv.envs.utils import getColor, rgb
 
 class Body:
     def __init__(self, world, *args, **kwargs):
@@ -13,7 +13,6 @@ class Body:
     def _build(self, **kwargs):
         self.body = None
 
-    @abc.abstractmethod
     def reset(self):
         pass
 
@@ -101,3 +100,31 @@ class Ship(Body):
         newMassData.I = Ship.SHIP_INERTIA + Ship.SHIP_MASS*(newMassData.center[0]**2+newMassData.center[1]**2) # inertia is defined at origin location not localCenter
         self.body.massData = newMassData
 
+class Rock(Body):
+    RADIUS = 20
+    def __init__(self, world, x, y, **kwargs):
+        super().__init__(world, x, y, **kwargs)
+
+    def _build(self, x, y, **kwargs):
+        radius = np.random.uniform(0.5*Rock.RADIUS,2*Rock.RADIUS)
+
+        self.body = self.world.CreateStaticBody(
+            position=(x, y), # FIXME Should have something like: map.get_random_available_position()
+            angle=np.random.uniform( 0, 2*math.pi), # FIXME Not really useful if circle shaped
+            fixtures=fixtureDef(
+            shape = circleShape(pos=(0,0),radius = radius),
+            categoryBits=0x0010, # FIXME Move categories to MACRO
+            maskBits=0x1111, # FIXME Same as above + it can collide with itself -> may cause problem when generating map ?
+            restitution=1.0))
+        self.body.color1 = rgb(83, 43, 9) # brown
+        self.body.color2 = rgb(41, 14, 9) # darker brown
+        self.body.color3 = rgb(255, 255, 255) # seen
+        self.body.userData = {
+            'name':'rock',
+            'hit':False,
+            'hit_with':'',
+            'distance_to_ship':1.0, # FIXME are the 4 lines, including this one, used in any way?
+            'bearing_from_ship':0.0,
+            'seen':False,
+            'in_range':False,
+            'radius':radius}

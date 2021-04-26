@@ -13,8 +13,8 @@ from Box2D.b2 import (circleShape, fixtureDef, polygonShape, contactListener)
 import gym
 from gym import spaces
 from gym.utils import seeding
-from shipNavEnv.envs.utils import getColor
-from shipNavEnv.Bodies import Ship
+from shipNavEnv.envs.utils import getColor, rgb
+from shipNavEnv.Bodies import Ship, Rock
 
 """
 The objective of this environment is control a ship to reach a target
@@ -151,7 +151,7 @@ class ShipNavRocks(gym.Env):
         if self.ship: self.ship.destroy()
         if self.target: self.world.DestroyBody(self.target)
         while self.rocks :
-            self.world.DestroyBody(self.rocks.pop(0))
+            self.rocks.pop(0).destroy()
 
         self.ship = None
         self.target = None
@@ -160,30 +160,10 @@ class ShipNavRocks(gym.Env):
     def _create_map(self):
         for i in range(self.n_rocks):
             radius = np.random.uniform( 0.5*ROCK_RADIUS,2*ROCK_RADIUS)
-            rock =self.world.CreateStaticBody(
-                position=(np.random.uniform(0, SEA_W), np.random.uniform(0, SEA_H)), # FIXME Should have something like: map.get_random_available_position()
-                angle=np.random.uniform( 0, 2*math.pi), # FIXME Not really useful if circle shaped
-                fixtures=fixtureDef(
-                shape = circleShape(pos=(0,0),radius = radius),
-                categoryBits=0x0010, # FIXME Move categories to MACRO
-                maskBits=0x1111, # FIXME Same as above + it can collide with itself -> may cause problem when generating map ?
-                restitution=1.0))
-            rock.color1 = rgb(83, 43, 9) # brown
-            rock.color2 = rgb(41, 14, 9) # darker brown
-            rock.color3 = rgb(255, 255, 255) # seen
-            rock.userData = {'id':i,
-                             'name':'rock',
-                             'hit':False,
-                             'hit_with':'',
-                             'distance_to_ship':1.0, # FIXME are the 4 lines, including this one, used in any way?
-                             'bearing_from_ship':0.0,
-                             'seen':False,
-                             'in_range':False,
-                             'radius':radius}
-            
+            rock = Rock(self.world, np.random.uniform(0, SEA_W), np.random.uniform(0, SEA_H))
             self.rocks.append(rock)
         
-        getDistToRockfield = lambda x,y: np.asarray([np.sqrt((rock.position.x - x)**2 + (rock.position.y - y)**2) for rock in self.rocks]).min() if len(self.rocks) > 0 else np.inf # infinite distance if there is no rock field
+        getDistToRockfield = lambda x,y: np.asarray([np.sqrt((rock.body.position.x - x)**2 + (rock.body.position.y - y)**2) for rock in self.rocks]).min() if len(self.rocks) > 0 else np.inf # infinite distance if there is no rock field
         
 
         # create boat position randomly, but not overlapping an existing rock
@@ -237,7 +217,7 @@ class ShipNavRocks(gym.Env):
         self.ship.reset()
 
         self.ships.append(self.ship)
-        self.drawlist = [s.body for s in self.ships] + [self.target] + self.rocks
+        self.drawlist = [s.body for s in self.ships] + [self.target] + [r.body for r in self.rocks]
         
         return self.step(2)[0] #FIXME Doesn't that mean we already do one time step ? Expected behavior ?
 
@@ -301,28 +281,28 @@ class ShipNavRocks(gym.Env):
         state.append(bearing_t/np.pi)
         
         for rock in self.rocks:
-            distance, bearing = getDistanceBearing(self.ship.body, rock)
-            distance = np.maximum(distance-rock.userData['radius'],0) #FIXME Is this useful ? If ship collides with rock, the engine notifies us right? + We don't take into account the ships geometry.
-            rock.userData['distance_to_ship'] = 2 * distance/norm_pos - 1
-            rock.userData['bearing_from_ship'] = bearing/np.pi
-            rock.userData['in_range'] = True if distance < self.obs_radius else False #FIXME From center of ship center to center of rock. Meaning it wouldn't see very large rocks
+            distance, bearing = getDistanceBearing(self.ship.body, rock.body)
+            distance = np.maximum(distance-rock.body.userData['radius'],0) #FIXME Is this useful ? If ship collides with rock, the engine notifies us right? + We don't take into account the ships geometry.
+            rock.body.userData['distance_to_ship'] = 2 * distance/norm_pos - 1
+            rock.body.userData['bearing_from_ship'] = bearing/np.pi
+            rock.body.userData['in_range'] = True if distance < self.obs_radius else False #FIXME From center of ship center to center of rock.body. Meaning it wouldn't see very large rocks
         
         # sort rocks from closest to farthest
-        self.rocks.sort(key=lambda x:x.userData['distance_to_ship'])
+        self.rocks.sort(key=lambda x:x.body.userData['distance_to_ship'])
         
         # set 'seen' bool
         #FIXME Could be done in previous loop (a bit more efficient)
         for i in range(self.n_rocks_obs):
-            if self.rocks[i].userData['in_range']:
-                self.rocks[i].userData['seen']=True 
-                state.append(self.rocks[i].userData['distance_to_ship'])
-                state.append(self.rocks[i].userData['bearing_from_ship'])
+            if self.rocks[i].body.userData['in_range']:
+                self.rocks[i].body.userData['seen']=True 
+                state.append(self.rocks[i].body.userData['distance_to_ship'])
+                state.append(self.rocks[i].body.userData['bearing_from_ship'])
             else: #if closest rocks are outside horizon, fill observation with rocks infinitely far on the ship axis
-                self.rocks[i].userData['seen']=False
+                self.rocks[i].body.userData['seen']=False
                 state.append(1) #FIXME Maybe don't include them in state instead of choosing arbitrary values
                 state.append(0)
         for rock in self.rocks[self.n_rocks_obs:]:
-            rock.userData['seen']=False
+            rock.body.userData['seen']=False
 
         #FIXME Separate function
         # REWARD -------------------------------------------------------------------------------------------------------
@@ -452,7 +432,3 @@ class ShipNavRocks(gym.Env):
         self.COGtrans.set_translation(*self.ship.body.localCenter)
         
         return self.viewer.render(return_rgb_array=mode == 'rgb_array')
-
-
-def rgb(r, g, b):
-    return float(r) / 255, float(g) / 255, float(b) / 255

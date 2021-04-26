@@ -21,3 +21,6 @@ def getColor(idx:int=0,alpha:float=1.0,clist:list=clist)->tuple:
     alpha = np.clip(alpha,0.6,1.0)
     color = (alpha * np.array(clist[idx%len(clist)]) + (1-alpha)*white)/255
     return tuple(color)
+
+def rgb(r, g, b):
+    return float(r) / 255, float(g) / 255, float(b) / 255
