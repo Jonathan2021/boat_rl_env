@@ -1,3 +1,3 @@
 gym
 numpy
-box2d-py
+Box2D

@@ -14,6 +14,7 @@ import gym
 from gym import spaces
 from gym.utils import seeding
 from shipNavEnv.envs.utils import getColor
+from shipNavEnv.Bodies import Ship
 
 """
 The objective of this environment is control a ship to reach a target
@@ -45,32 +46,9 @@ Discrete control inputs are:
 MAX_STEPS = 1000    # max steps for a simulation
 FPS = 60            # simulation framerate
 
-# THRUSTER
-THRUSTER_MIN_THROTTLE = 0.4 # [%]
-THRUSTER_MAX_ANGLE = 0.4    # [rad]
-THRUSTER_MAX_FORCE = 3e4    # [N]
-
-THRUSTER_HEIGHT = 20        # [m]
-THRUSTER_WIDTH = 0.8        # [m]
-
-# SHIP
-SHIP_HEIGHT = 20            # [m]
-SHIP_WIDTH = 5              # [m]
-
 # SEA
 SEA_H = 900                 # [m]
 SEA_W = 1600                # [m]
-
-# ship model
-# dummy parameters for fast simulation
-SHIP_MASS = 27e1            # [kg]
-SHIP_INERTIA = 280e1        # [kg.m²]
-Vmax = 300                  # [m/s]
-Rmax = 1*np.pi              #[rad/s]
-K_Nr = (THRUSTER_MAX_FORCE*SHIP_HEIGHT*math.sin(THRUSTER_MAX_ANGLE)/(2*Rmax)) # [N.m/(rad/s)]
-K_Xu = THRUSTER_MAX_FORCE/Vmax # [N/(m/s)]
-K_Yv = 10*K_Xu              # [N/(m/s)]
-
 
 # ROCK
 ROCK_RADIUS = 20            # [m]
@@ -127,8 +105,6 @@ class ShipNavRocks(gym.Env):
         # FIXME: Redundant with reset()
         self.episode_number = 0
         self.stepnumber = 0
-        self.throttle = 0
-        self.thruster_angle = 0.0
         self.state = []
         self.reward = 0
         self.episode_reward = 0
@@ -172,7 +148,7 @@ class ShipNavRocks(gym.Env):
     def _destroy(self):
         self.world.contactListener = None
 
-        if self.ship: self.world.DestroyBody(self.ship)
+        if self.ship: self.ship.destroy()
         if self.target: self.world.DestroyBody(self.target)
         while self.rocks :
             self.world.DestroyBody(self.rocks.pop(0))
@@ -242,31 +218,7 @@ class ShipNavRocks(gym.Env):
                                 'seen':True,
                                 'in_range':False}
 
-        self.ship = self.world.CreateDynamicBody(
-            position=(initial_x, initial_y),
-            angle=initial_heading,
-            fixtures=fixtureDef(
-                shape=polygonShape(vertices=((-SHIP_WIDTH / 2, 0),
-                                              (+SHIP_WIDTH / 2, 0),
-                                              (SHIP_WIDTH / 2, +SHIP_HEIGHT),
-                                              (0, +SHIP_HEIGHT*1.2),
-                                              (-SHIP_WIDTH / 2, +SHIP_HEIGHT))),
-                density=0.0,
-                categoryBits=0x0010, #FIXME Same category as rocks ?
-                maskBits=0x1111,
-                restitution=0.0),
-            linearDamping=0,
-            angularDamping=0
-        )
-
-        self.ship.color1 = getColor(idx=0)
-        self.ship.linearVelocity = (0.0,0.0)
-        self.ship.angularVelocity = 0
-        self.ship.userData = {'name':'ship',
-                              'hit':False,
-                              'hit_with':''}
-        
-
+        self.ship = Ship(self.world, initial_x, initial_y, initial_heading)
 
     def reset(self):
         self._destroy()
@@ -275,8 +227,6 @@ class ShipNavRocks(gym.Env):
         self.world.contactListener = self.world.contactListener_keepref
 
 
-        self.throttle = 0
-        self.thruster_angle = 0.0
         self.stepnumber = 0
         self.episode_reward = 0
         self.rocks = []
@@ -284,15 +234,10 @@ class ShipNavRocks(gym.Env):
 
         self._create_map()
 
-                 
-        newMassData = self.ship.massData
-        newMassData.mass = SHIP_MASS
-        newMassData.center = (0.0,SHIP_HEIGHT/2) #FIXME Is this the correct center of mass ?
-        newMassData.I = SHIP_INERTIA + SHIP_MASS*(newMassData.center[0]**2+newMassData.center[1]**2) # inertia is defined at origin location not localCenter
-        self.ship.massData = newMassData
-        
+        self.ship.reset()
+
         self.ships.append(self.ship)
-        self.drawlist = self.ships + [self.target] + self.rocks
+        self.drawlist = [s.body for s in self.ships] + [self.target] + self.rocks
         
         return self.step(2)[0] #FIXME Doesn't that mean we already do one time step ? Expected behavior ?
 
@@ -302,35 +247,35 @@ class ShipNavRocks(gym.Env):
         #print('ACTION %d' % action)
         assert self.action_space.contains(action), "%r (%s) invalid " % (action, type(action))
         # implement action
-        if action == 0:
-            self.thruster_angle += 0.01*60/(self.fps) # FIXME: Put this inside a func + use a macro
-        elif action == 1:
-            self.thruster_angle -= 0.01*60/(self.fps)
-
-
         # thruster angle and throttle saturation
-        self.thruster_angle = np.clip(self.thruster_angle, -THRUSTER_MAX_ANGLE, THRUSTER_MAX_ANGLE)
-        self.throttle = np.clip(self.throttle, 0.0, 1.0)
+        if action == 0:
+            self.ship.steer(1)
+        elif action == 1:
+            self.ship.steer(-1)
+        #else:
+        #    print("Doing nothing !")
+
+        self.ship.thrust(0)
 
         # main engine force
-        COGpos = self.ship.GetWorldPoint(self.ship.localCenter)
+        COGpos = self.ship.body.GetWorldPoint(self.ship.body.localCenter)
 
-        force_thruster = (-np.sin(self.ship.angle + self.thruster_angle) * THRUSTER_MAX_FORCE,
-                  np.cos(self.ship.angle + self.thruster_angle) * THRUSTER_MAX_FORCE )
+        force_thruster = (-np.sin(self.ship.body.angle + self.ship.thruster_angle) * Ship.THRUSTER_MAX_FORCE,
+                  np.cos(self.ship.body.angle + self.ship.thruster_angle) * Ship.THRUSTER_MAX_FORCE )
         
-        localVelocity = self.ship.GetLocalVector(self.ship.linearVelocity)
+        localVelocity = self.ship.body.GetLocalVector(self.ship.body.linearVelocity)
 
-        force_damping_in_ship_frame = (-localVelocity[0] *K_Yv,-localVelocity[1] *K_Xu)
+        force_damping_in_ship_frame = (-localVelocity[0] *Ship.K_Yv,-localVelocity[1] *Ship.K_Xu)
         
-        force_damping = self.ship.GetWorldVector(force_damping_in_ship_frame)
-        force_damping = (np.cos(self.ship.angle)* force_damping_in_ship_frame[0] -np.sin(self.ship.angle) * force_damping_in_ship_frame[1],
-                  np.sin(self.ship.angle)* force_damping_in_ship_frame[0] + np.cos(self.ship.angle) * force_damping_in_ship_frame[1] )
+        force_damping = self.ship.body.GetWorldVector(force_damping_in_ship_frame)
+        force_damping = (np.cos(self.ship.body.angle)* force_damping_in_ship_frame[0] -np.sin(self.ship.body.angle) * force_damping_in_ship_frame[1],
+                  np.sin(self.ship.body.angle)* force_damping_in_ship_frame[0] + np.cos(self.ship.body.angle) * force_damping_in_ship_frame[1] )
         
-        torque_damping = -self.ship.angularVelocity *K_Nr
+        torque_damping = -self.ship.body.angularVelocity *Ship.K_Nr
 
-        self.ship.ApplyTorque(torque=torque_damping,wake=False)
-        self.ship.ApplyForce(force=force_thruster, point=self.ship.position, wake=False)
-        self.ship.ApplyForce(force=force_damping, point=COGpos, wake=False)
+        self.ship.body.ApplyTorque(torque=torque_damping,wake=False)
+        self.ship.body.ApplyForce(force=force_thruster, point=self.ship.body.position, wake=False)
+        self.ship.body.ApplyForce(force=force_damping, point=COGpos, wake=False)
 
 
         ### DEBUG ###
@@ -343,20 +288,20 @@ class ShipNavRocks(gym.Env):
 
         # state construction
         norm_pos = np.max((SEA_W, SEA_H))
-        distance_t, bearing_t = getDistanceBearing(self.ship,self.target)
+        distance_t, bearing_t = getDistanceBearing(self.ship.body ,self.target)
         #print(bearing_t)
         #print(distance_t)
         
         # Normalized ship states
-        #state += list(np.asarray(self.ship.GetLocalVector(self.ship.linearVelocity))/Vmax)
-        state.append(self.ship.angularVelocity/Rmax)
-        state.append(self.thruster_angle / THRUSTER_MAX_ANGLE)
+        #state += list(np.asarray(self.ship.body.GetLocalVector(self.ship.body.linearVelocity))/Ship.Vmax)
+        state.append(self.ship.body.angularVelocity/Ship.Rmax)
+        state.append(self.ship.thruster_angle / Ship.THRUSTER_MAX_ANGLE)
         standardized_dist = (2* distance_t / norm_pos)  - 1
         state.append(standardized_dist) #FIXME Not in [-1,1]
         state.append(bearing_t/np.pi)
         
         for rock in self.rocks:
-            distance, bearing = getDistanceBearing(self.ship,rock)
+            distance, bearing = getDistanceBearing(self.ship.body, rock)
             distance = np.maximum(distance-rock.userData['radius'],0) #FIXME Is this useful ? If ship collides with rock, the engine notifies us right? + We don't take into account the ships geometry.
             rock.userData['distance_to_ship'] = 2 * distance/norm_pos - 1
             rock.userData['bearing_from_ship'] = bearing/np.pi
@@ -384,14 +329,15 @@ class ShipNavRocks(gym.Env):
         self.reward = 0
         #print(distance_t)
         
-        if self.ship.userData['hit']:
-            if(self.ship.userData['hit_with']=='target'):
+        if self.ship.body.userData['hit']:
+            if(self.ship.body.userData['hit_with']=='target'):
                 self.reward = +10  #high positive reward. hitting target is good
             else:
                 self.reward = -1 #high negative reward. hitting anything else than target is bad
             done = True
         else:   # general case, we're trying to reach target so being close should be rewarded
-            self.reward = - ((2* distance_t / norm_pos)  - 1) / MAX_STEPS # FIXME Macro instead of magic number
+            pass
+            #self.reward = - ((2* distance_t / norm_pos)  - 1) / MAX_STEPS # FIXME Macro instead of magic number
             #print(self.reward)
         
         # limits episode to MAX_STEPS
@@ -411,7 +357,7 @@ class ShipNavRocks(gym.Env):
             if self.stepnumber % int(self.display_traj_T*self.fps) == 0: #FIXME If fps is low then int(<1) -> Division by 0 error. Should Take math.ceil instead or something.
                 self.traj.append(COGpos)
 
-        print(state)
+        #print(state)
         
         return self.state, self.reward, done, {}
 
@@ -437,28 +383,28 @@ class ShipNavRocks(gym.Env):
             self.thrustertrans = rendering.Transform()
             self.COGtrans = rendering.Transform()
             
-            thruster = rendering.FilledPolygon(((-THRUSTER_WIDTH / 2, 0),
-                                              (THRUSTER_WIDTH / 2, 0),
-                                              (THRUSTER_WIDTH / 2, -THRUSTER_HEIGHT),
-                                              (-THRUSTER_WIDTH / 2, -THRUSTER_HEIGHT)))
+            thruster = rendering.FilledPolygon(((-Ship.THRUSTER_WIDTH / 2, 0),
+                                              (Ship.THRUSTER_WIDTH / 2, 0),
+                                              (Ship.THRUSTER_WIDTH / 2, -Ship.THRUSTER_HEIGHT),
+                                              (-Ship.THRUSTER_WIDTH / 2, -Ship.THRUSTER_HEIGHT)))
             
             thruster.add_attr(self.thrustertrans) # add thruster angle, assigned later
             thruster.add_attr(self.shiptrans) # add ship angle and ship position, assigned later
-            thruster.set_color(*self.ship.color1)
+            thruster.set_color(*self.ship.body.color1)
             
             self.viewer.add_geom(thruster)
             
-            COG = rendering.FilledPolygon(((-THRUSTER_WIDTH / 0.2, 0),
-                                            (0, -THRUSTER_WIDTH/0.2),
-                                              (THRUSTER_WIDTH / 0.2, 0),
-                                              (0, THRUSTER_WIDTH/0.2)))
+            COG = rendering.FilledPolygon(((-Ship.THRUSTER_WIDTH / 0.2, 0),
+                                            (0, -Ship.THRUSTER_WIDTH/0.2),
+                                              (Ship.THRUSTER_WIDTH / 0.2, 0),
+                                              (0, Ship.THRUSTER_WIDTH/0.2)))
             COG.add_attr(self.COGtrans) # add COG position
             COG.add_attr(self.shiptrans) # add ship angle and ship position
             
             COG.set_color(0.0, 0.0, 0.0)
             self.viewer.add_geom(COG)
             horizon = rendering.make_circle(radius=self.obs_radius, res=60, filled=False)
-            horizon.set_color(*self.ship.color1)
+            horizon.set_color(*self.ship.body.color1)
             horizon.add_attr(self.shiptrans) # add ship angle and ship position
 
             self.viewer.add_geom(horizon)
@@ -466,10 +412,10 @@ class ShipNavRocks(gym.Env):
         
         #FIXME Feels pretty hacky, should check on that later
         # Adjusting window
-        width_min = min(0,self.ship.position[0]-2*SHIP_HEIGHT)
-        width_max = max(SEA_W,self.ship.position[0]+2*SHIP_HEIGHT)
-        height_min = min(0,self.ship.position[1]-2*SHIP_HEIGHT)
-        height_max = max(SEA_H,self.ship.position[1]+2*SHIP_HEIGHT)
+        width_min = min(0,self.ship.body.position[0]-2*Ship.SHIP_HEIGHT)
+        width_max = max(SEA_W,self.ship.body.position[0]+2*Ship.SHIP_HEIGHT)
+        height_min = min(0,self.ship.body.position[1]-2*Ship.SHIP_HEIGHT)
+        height_max = max(SEA_H,self.ship.body.position[1]+2*Ship.SHIP_HEIGHT)
         ratio_w = (width_max-width_min)/SEA_W
         ratio_h = (height_max-height_min)/SEA_H
         if ratio_w > ratio_h:
@@ -500,10 +446,10 @@ class ShipNavRocks(gym.Env):
             alpha = 1-(len(self.traj)-j)/len(self.traj)
             self.viewer.draw_circle(radius = 2, res=30, color = getColor(idx=0,alpha=alpha), filled=True).add_attr(t) 
             
-        self.shiptrans.set_translation(*self.ship.position)
-        self.shiptrans.set_rotation(self.ship.angle)
-        self.thrustertrans.set_rotation(self.thruster_angle)
-        self.COGtrans.set_translation(*self.ship.localCenter)
+        self.shiptrans.set_translation(*self.ship.body.position)
+        self.shiptrans.set_rotation(self.ship.body.angle)
+        self.thrustertrans.set_rotation(self.ship.thruster_angle)
+        self.COGtrans.set_translation(*self.ship.body.localCenter)
         
         return self.viewer.render(return_rgb_array=mode == 'rgb_array')
 
