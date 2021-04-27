@@ -2,16 +2,17 @@ from Box2D.b2 import fixtureDef, polygonShape, circleShape
 import numpy as np
 import math
 import abc
-from shipNavEnv.envs.utils import getColor, rgb
+from shipNavEnv.utils import getColor, rgb
 
 class Body:
     def __init__(self, world, *args, **kwargs):
         self.world = world
+        self.body = None
         self._build(*args, **kwargs)
 
     @abc.abstractmethod
     def _build(self, **kwargs):
-        self.body = None
+        pass
 
     def reset(self):
         pass
@@ -75,6 +76,14 @@ class Ship(Body):
         self.body.userData = {'name':'ship',
                 'hit':False,
                 'hit_with':''}
+
+        newMassData = self.body.massData
+        newMassData.mass = Ship.SHIP_MASS
+        newMassData.center = (0.0, Ship.SHIP_HEIGHT/2) #FIXME Is this the correct center of mass ?
+        newMassData.I = Ship.SHIP_INERTIA + Ship.SHIP_MASS*(newMassData.center[0]**2+newMassData.center[1]**2) # inertia is defined at origin location not localCenter
+        self.body.massData = newMassData
+
+
         
 
     def thrust(self, throttle, fps=60):
@@ -93,12 +102,6 @@ class Ship(Body):
     def reset(self):
         self.throttle = 0
         self.thruster_angle = 0
-
-        newMassData = self.body.massData
-        newMassData.mass = Ship.SHIP_MASS
-        newMassData.center = (0.0, Ship.SHIP_HEIGHT/2) #FIXME Is this the correct center of mass ?
-        newMassData.I = Ship.SHIP_INERTIA + Ship.SHIP_MASS*(newMassData.center[0]**2+newMassData.center[1]**2) # inertia is defined at origin location not localCenter
-        self.body.massData = newMassData
 
 class Rock(Body):
     RADIUS = 20
@@ -128,3 +131,26 @@ class Rock(Body):
             'seen':False,
             'in_range':False,
             'radius':radius}
+
+class Target(Body):
+    RADIUS = 20
+    def __init__(self, world, x, y, **kwargs):
+        super().__init__(world, x, y, **kwargs)
+
+    def _build(self, x, y, **kwargs):
+        self.body =  self.world.CreateStaticBody(
+            position = (x, y),
+            angle = 0.0,
+            fixtures = fixtureDef(
+            shape = circleShape(pos=(0,0),radius = Target.RADIUS),
+            categoryBits=0x0010,
+            maskBits=0x1111,
+            restitution=0.1))
+        self.body.color1 = rgb(255,0,0)
+        self.body.color2 = rgb(0,255,0)
+        self.body.color3 = rgb(255, 255, 255) # seen
+        self.body.userData = {'name':'target',
+                                'hit':False,
+                                'hit_with':'',
+                                'seen':True,
+                                'in_range':False}

@@ -13,7 +13,7 @@ from Box2D.b2 import (circleShape, fixtureDef, polygonShape, contactListener)
 import gym
 from gym import spaces
 from gym.utils import seeding
-from shipNavEnv.envs.utils import getColor, rgb
+from shipNavEnv.utils import getColor, rgb
 from shipNavEnv.Bodies import Ship, Rock
 
 """
@@ -214,7 +214,7 @@ class ShipNavRocks(gym.Env):
 
         self._create_map()
 
-        self.ship.reset()
+        self.ship.reset() # Will be reseted in new World class reset
 
         self.ships.append(self.ship)
         self.drawlist = [s.body for s in self.ships] + [self.target] + [r.body for r in self.rocks]
@@ -224,7 +224,7 @@ class ShipNavRocks(gym.Env):
     def step(self, action):
         done = False
         state = []
-        #print('ACTION %d' % action)
+        print('ACTION %d' % action)
         assert self.action_space.contains(action), "%r (%s) invalid " % (action, type(action))
         # implement action
         # thruster angle and throttle saturation
@@ -277,7 +277,7 @@ class ShipNavRocks(gym.Env):
         state.append(self.ship.body.angularVelocity/Ship.Rmax)
         state.append(self.ship.thruster_angle / Ship.THRUSTER_MAX_ANGLE)
         standardized_dist = (2* distance_t / norm_pos)  - 1
-        state.append(standardized_dist) #FIXME Not in [-1,1]
+        state.append(standardized_dist)
         state.append(bearing_t/np.pi)
         
         for rock in self.rocks:
@@ -311,17 +311,19 @@ class ShipNavRocks(gym.Env):
         
         if self.ship.body.userData['hit']:
             if(self.ship.body.userData['hit_with']=='target'):
-                self.reward = +10  #high positive reward. hitting target is good
+                self.reward = +10 #high positive reward. hitting target is good
             else:
                 self.reward = -1 #high negative reward. hitting anything else than target is bad
             done = True
         else:   # general case, we're trying to reach target so being close should be rewarded
             pass
+            #self.reward = - 1/ MAX_STEPS
             #self.reward = - ((2* distance_t / norm_pos)  - 1) / MAX_STEPS # FIXME Macro instead of magic number
             #print(self.reward)
         
         # limits episode to MAX_STEPS
         if self.stepnumber >= MAX_STEPS:
+            self.reward = -1
             done = True
 
         self.episode_reward += self.reward
