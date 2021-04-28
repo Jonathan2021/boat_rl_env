@@ -7,13 +7,14 @@ class ContactDetector(b2ContactListener):
         super().__init__()
 
     def BeginContact(self, contact):
-        contact.fixtureA.body.userData['hit'] = True
-        contact.fixtureA.body.userData['hit_with'] = contact.fixtureB.body.userData['name']
-        contact.fixtureB.body.userData['hit'] = True
-        contact.fixtureB.body.userData['hit_with'] = contact.fixtureA.body.userData['name']
+        contact.fixtureA.body.userData.hit_with.append(contact.fixtureB.body.userData)
+        contact.fixtureB.body.userData.hit_with.append(contact.fixtureA.body.userData)
         #print('There was a contact!')
+
     def EndContact(self, contact):
-        pass
+        contact.fixtureA.body.userData.unhit(contact.fixtureB.body.userData)
+        contact.fixtureB.body.userData.unhit(contact.fixtureA.body.userData)
+
     def PreSolve(self, contact, oldManifold):
         pass
     def PostSolve(self, contact, impulse):

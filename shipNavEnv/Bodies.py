@@ -3,23 +3,52 @@ import numpy as np
 import math
 import abc
 from shipNavEnv.utils import getColor, rgb
+from enum import Enum
+
+class BodyType(Enum):
+    BODY = 0,
+    SHIP = 1,
+    ROCK = 2,
+    TARGET = 3
 
 class Body:
     def __init__(self, world, *args, **kwargs):
         self.world = world
         self.body = None
         self._build(*args, **kwargs)
+        self.type = BodyType.BODY
+        self.hit_with = []
+        self.reset()
 
     @abc.abstractmethod
     def _build(self, **kwargs):
         pass
 
-    def reset(self):
-        pass
+    def clear_hit(self):
+        self.hit_with = []
+    
+    def unhit(self, body):
+        self.hit_with.remove(body)
+
+    def is_hit(self):
+        return len(self.hit_with) > 0
 
     def destroy(self):
         self.world.DestroyBody(self.body)
 
+class Obstacle(Body):
+    DEFAULT_DIST = 1
+    DEFAULT_BEARING = 0
+    def __init__(self, world, x, y, **kwargs):
+        super().__init__(world, x, y, **kwargs)
+        self.distance_to_ship = self.DEFAULT_DIST
+        self.bearing_from_ship = self.DEFAULT_BEARING
+        self.seen = False
+
+    def reset(self):
+        self.distance_to_ship = self.DEFAULT_DIST
+        self.bearing_from_ship = self.DEFAULT_BEARING
+        self.seen = False
 
 class Ship(Body):
     # THRUSTER
@@ -47,10 +76,12 @@ class Ship(Body):
     K_Yv = 10*K_Xu              # [N/(m/s)]
 
 
-    def __init__(self, world, init_angle, init_x, init_y, **kwargs):
+    def __init__(self, world, init_angle, init_x, init_y, obs_radius, **kwargs):
         super().__init__(world, init_angle, init_x, init_y, **kwargs)
         self.throttle = 0
         self.thruster_angle = 0
+        self.type = BodyType.SHIP
+        self.obs_radius = obs_radius
 
     def _build(self, init_angle, init_x, init_y, **kwargs):
         self.body = self.world.CreateDynamicBody(
@@ -73,9 +104,7 @@ class Ship(Body):
         self.body.color1 = getColor(idx=0)
         self.body.linearVelocity = (0.0,0.0)
         self.body.angularVelocity = 0
-        self.body.userData = {'name':'ship',
-                'hit':False,
-                'hit_with':''}
+        self.body.userData = self
 
         newMassData = self.body.massData
         newMassData.mass = Ship.SHIP_MASS
@@ -83,7 +112,8 @@ class Ship(Body):
         newMassData.I = Ship.SHIP_INERTIA + Ship.SHIP_MASS*(newMassData.center[0]**2+newMassData.center[1]**2) # inertia is defined at origin location not localCenter
         self.body.massData = newMassData
 
-
+    def can_see(self, obstacle: Obstacle):
+        return obstacle.distance_to_ship < self.obs_radius
         
 
     def thrust(self, throttle, fps=60):
@@ -103,10 +133,12 @@ class Ship(Body):
         self.throttle = 0
         self.thruster_angle = 0
 
-class Rock(Body):
+
+class Rock(Obstacle):
     RADIUS = 20
     def __init__(self, world, x, y, **kwargs):
         super().__init__(world, x, y, **kwargs)
+        self.type = BodyType.ROCK
 
     def _build(self, x, y, **kwargs):
         radius = np.random.uniform(0.5*Rock.RADIUS,2*Rock.RADIUS)
@@ -122,20 +154,16 @@ class Rock(Body):
         self.body.color1 = rgb(83, 43, 9) # brown
         self.body.color2 = rgb(41, 14, 9) # darker brown
         self.body.color3 = rgb(255, 255, 255) # seen
-        self.body.userData = {
-            'name':'rock',
-            'hit':False,
-            'hit_with':'',
-            'distance_to_ship':1.0, # FIXME are the 4 lines, including this one, used in any way?
-            'bearing_from_ship':0.0,
-            'seen':False,
-            'in_range':False,
-            'radius':radius}
 
-class Target(Body):
+        self.radius = radius
+
+        self.body.userData = self
+
+class Target(Obstacle):
     RADIUS = 20
     def __init__(self, world, x, y, **kwargs):
         super().__init__(world, x, y, **kwargs)
+        self.type = BodyType.TARGET
 
     def _build(self, x, y, **kwargs):
         self.body =  self.world.CreateStaticBody(
@@ -149,8 +177,4 @@ class Target(Body):
         self.body.color1 = rgb(255,0,0)
         self.body.color2 = rgb(0,255,0)
         self.body.color3 = rgb(255, 255, 255) # seen
-        self.body.userData = {'name':'target',
-                                'hit':False,
-                                'hit_with':'',
-                                'seen':True,
-                                'in_range':False}
+        self.body.userData = self

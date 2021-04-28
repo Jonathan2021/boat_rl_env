@@ -13,7 +13,7 @@ from Box2D.b2 import (circleShape, fixtureDef, polygonShape, contactListener)
 import gym
 from gym import spaces
 from gym.utils import seeding
-from shipNavEnv.envs.utils import getColor
+from shipNavEnv.utils import getColor
 
 """
 
