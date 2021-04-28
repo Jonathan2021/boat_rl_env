@@ -1,7 +1,7 @@
 import Box2D
 from shipNavEnv.Bodies import Ship, Rock, Target, Body
-import abc
 from shipNavEnv.Callbacks import ContactDetector, PlaceOccupied
+from shipNavEnv.utils import rgb
 import numpy as np
 import math
 
@@ -10,24 +10,24 @@ class World:
     HEIGHT = 900
     WIDTH = 1600
 
-    def __init__(self):
+    def __init__(self, ship_kwargs=None):
+        self.ship_kwargs = ship_kwargs
         self.listener = ContactDetector()
         self.world = Box2D.b2World(contactListener = self.listener, gravity = World.GRAVITY)
         self.ships =  []
         self.target = None
         self.rocks = []
         self.ship = None
+        self.viewer = None
         self.populate()
 
-    def get_bodies(self):
-        return ([self.ship] if self.ship else []) + ([self.target] if self.target else []) + self.get_obstacles()
-
-    def get_obstacles(self):
-        return self.rocks + self.ships
-
-    @abc.abstractmethod
     def populate(self):
-        pass
+        angle = self.get_random_angle()
+        self.ship = Ship(self.world, angle, 0, 0, **self.ship_kwargs if self.ship_kwargs else dict())
+        self.get_random_free_space(self.ship)
+
+        self.target = Target(self.world, 0, 0)
+        self.get_random_free_space(self.target)
 
     def reset(self):
         self.destroy()
@@ -60,25 +60,13 @@ class World:
             if query.fixture:
                 return self.get_random_free_space(body, trial +1, limit)
         return True        
-    
-    @abc.abstractmethod
-    def step(self):
-        pass
 
-    
 
-class EmptyWorld(World):
-    def __init__(self, ship_kwargs=None):
-        self.ship_kwargs = ship_kwargs
-        super().__init__()
+    def get_bodies(self):
+        return ([self.ship] if self.ship else []) + ([self.target] if self.target else []) + self.get_obstacles()
 
-    def populate(self):
-        angle = self.get_random_angle()
-        self.ship = Ship(self.world, angle, 0, 0, **self.ship_kwargs if self.ship_kwargs else dict())
-        self.get_random_free_space(self.ship)
-
-        self.target = Target(self.world, 0, 0)
-        self.get_random_free_space(self.target)
+    def get_obstacles(self):
+        return self.rocks + self.ships
 
     def _get_local_ship_pos_dist(self, x):
         COGpos = self.ship.body.GetWorldPoint(self.ship.body.localCenter)
@@ -152,8 +140,61 @@ class EmptyWorld(World):
         
         self.update_obstacle_data()
 
+    def render(self, mode='human', close=False):
+        DEBORDER = 10
+        cyan = rgb(126, 150, 233)
 
-class RockOnlyWorld(EmptyWorld):
+        #print([d.userData for d in self.drawlist])
+        if close:
+            if self.viewer:
+                self.viewer.close()
+                self.viewer = None
+            return
+
+        from gym.envs.classic_control import rendering
+
+        ship = self.ship
+
+        if self.viewer is None:
+
+            self.viewer = rendering.Viewer(self.WIDTH, self.HEIGHT)
+            
+            water = rendering.FilledPolygon((
+                (-DEBORDER * self.WIDTH, -DEBORDER * self.HEIGHT),
+                (-DEBORDER * self.WIDTH, DEBORDER*self.HEIGHT),
+                (DEBORDER * self.WIDTH, DEBORDER*self.HEIGHT),
+                (DEBORDER*self.WIDTH, -DEBORDER*self.WIDTH)))
+
+            water.name = "Water"
+
+            water.set_color(*cyan)
+            self.viewer.add_geom(water)
+
+        for body in self.get_bodies():
+            body.render(self.viewer)
+            
+                    
+        #FIXME Feels pretty hacky, should check on that later
+        # Adjusting window
+        width_min = min(0, ship.body.position[0]-2*Ship.SHIP_HEIGHT)
+        width_max = max(self.WIDTH, ship.body.position[0]+2*Ship.SHIP_HEIGHT)
+        height_min = min(0, ship.body.position[1]-2*Ship.SHIP_HEIGHT)
+        height_max = max(self.HEIGHT, ship.body.position[1]+2*Ship.SHIP_HEIGHT)
+        ratio_w = (width_max-width_min)/self.WIDTH
+        ratio_h = (height_max-height_min)/self.HEIGHT
+        if ratio_w > ratio_h:
+            height_min *= ratio_w/ratio_h
+            height_max *= ratio_w/ratio_h
+        else:
+            width_min *= ratio_h/ratio_w
+            width_max *= ratio_h/ratio_w
+        
+        self.viewer.set_bounds(width_min,width_max,height_min,height_max)
+
+        return self.viewer.render(return_rgb_array=mode == 'rgb_array')
+
+
+class RockOnlyWorld(World):
     def __init__(self, n_rocks, ship_kwargs):
         self.n_rocks = n_rocks
         super().__init__(ship_kwargs)
@@ -166,14 +207,14 @@ class RockOnlyWorld(EmptyWorld):
 
         super().populate()
 
-class ShipsOnlyMap(EmptyWorld):
+class ShipsOnlyMap(World):
     def __init__(self):
         super().__init__()
 
-class ShipsAndRocksMap(EmptyWorld):
+class ShipsAndRocksMap(World):
     def __init__(self):
         super().__init__()
 
-class ImpossibleMap(EmptyWorld):
+class ImpossibleMap(World):
     def __init__(self):
         super().__init__()
