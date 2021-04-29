@@ -68,7 +68,6 @@ class ShipNavRocks(gym.Env):
         self._read_kwargs(**kwargs)
            
         self.seed()
-        self.viewer = None
         self.world = RockOnlyWorld(self.n_rocks, {'obs_radius': self.obs_radius})
         
         # inital conditions
@@ -122,8 +121,6 @@ class ShipNavRocks(gym.Env):
         self.stepnumber = 0
         self.episode_reward = 0
 
-        self.drawlist = [b.body for b in self.world.get_bodies()]
-        
         return self.step(2)[0] #FIXME Doesn't that mean we already do one time step ? Expected behavior ?
 
     def step(self, action):
@@ -178,6 +175,7 @@ class ShipNavRocks(gym.Env):
                 #print("Hit target, ending")
                 done = True
             else:
+                pass
                 self.reward = -0.5 #high negative reward. hitting anything else than target is bad
             #done = True
         else:   # general case, we're trying to reach target so being close should be rewarded

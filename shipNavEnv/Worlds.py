@@ -30,7 +30,15 @@ class World:
         self.get_random_free_space(self.target)
 
     def reset(self):
-        self.destroy()
+        for body in self.get_bodies():
+            body.destroy()
+        
+        self.ship = None
+        self.target = None
+        self.ships = []
+        self.rocks = []
+        self.viewer = None
+
         self.populate()
 
     def destroy(self):
@@ -107,7 +115,7 @@ class World:
                 obstacle.bearing_from_ship = bearing
                 obstacle.seen = self.ship.can_see(obstacle)
                 if not obstacle.seen:
-                    obstacle.reset()
+                    obstacle.clean()
                     
 
     def step(self, fps):
@@ -155,7 +163,7 @@ class World:
 
         ship = self.ship
 
-        if self.viewer is None:
+        if not self.viewer:
 
             self.viewer = rendering.Viewer(self.WIDTH, self.HEIGHT)
             
@@ -164,8 +172,6 @@ class World:
                 (-DEBORDER * self.WIDTH, DEBORDER*self.HEIGHT),
                 (DEBORDER * self.WIDTH, DEBORDER*self.HEIGHT),
                 (DEBORDER*self.WIDTH, -DEBORDER*self.WIDTH)))
-
-            water.name = "Water"
 
             water.set_color(*cyan)
             self.viewer.add_geom(water)

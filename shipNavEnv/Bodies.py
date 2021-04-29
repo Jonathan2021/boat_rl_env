@@ -16,14 +16,25 @@ class Body:
     def __init__(self, world, *args, **kwargs):
         self.world = world
         self.body = None
-        self._build(*args, **kwargs)
-        self.type = BodyType.BODY
         self.hit_with = []
-        self.reset()
+        self.type = BodyType.BODY
+        self.rendered_once = False
+        self._build(*args, **kwargs)
+        self.args = args
+        self.kwargs = kwargs
 
     @abc.abstractmethod
     def _build(self, **kwargs):
         pass
+
+    def clean(self):
+        self.hit_with = []
+        self.rendered_once = False
+
+    def reset(self):
+        self.destroy()
+        self.body = None
+        self._build(*self.args, **self.kwargs)
 
     def clear_hit(self):
         self.hit_with = []
@@ -36,6 +47,7 @@ class Body:
 
     def destroy(self):
         self.world.DestroyBody(self.body)
+        self.clean()
 
     @abc.abstractmethod
     def render(self, viewer):
@@ -50,7 +62,8 @@ class Obstacle(Body):
         self.bearing_from_ship = self.DEFAULT_BEARING
         self.seen = False
 
-    def reset(self):
+    def clean(self):
+        super().clean()
         self.distance_to_ship = self.DEFAULT_DIST
         self.bearing_from_ship = self.DEFAULT_BEARING
         self.seen = False
@@ -60,11 +73,13 @@ class RoundObstacle(Obstacle):
         super().__init__(world, x, y, **kwargs)
 
     def render(self, viewer):
-        t = self.body.transform
-        viewer.draw_circle(self.radius, color = (self.body.color1 if self.is_hit() else (self.body.color2 if self.seen else self.body.color3))).add_attr(t)
-        #viewer.draw_circle(f.shape.radius, color= (obj.color2 if f.body.userData.is_hit() else (obj.color3 if f.body.userData.seen else obj.color2)), filled=False, linewidth=2).add_attr(t)
-        #viewer.draw_circle(f.shape.radius, color= (obj.color1 if f.body.userData.seen else obj.color3)).add_attr(t)
-        #        viewer.draw_circle(f.shape.radius, color= (obj.color3 if f.body.userData.seen else obj.color1), filled=False, linewidth=2).add_attr(t)
+        trans = self.body.transform
+        for f in self.body.fixtures:
+            t = rendering.Transform(translation=trans * f.shape.pos)
+            viewer.draw_circle(self.radius, color = (self.body.color1 if self.is_hit() else (self.body.color2 if self.seen else self.body.color3))).add_attr(t)
+            viewer.draw_circle(f.shape.radius, color= (self.body.color2 if self.is_hit() else (self.body.color3 if self.seen else self.body.color2)), filled=False, linewidth=2).add_attr(t)
+            #viewer.draw_circle(f.shape.radius, color= (obj.color1 if f.body.userData.seen else obj.color3)).add_attr(t)
+            #        viewer.draw_circle(f.shape.radius, color= (obj.color3 if f.body.userData.seen else obj.color1), filled=False, linewidth=2).add_attr(t)
 
 
 class Ship(Body):
@@ -99,7 +114,6 @@ class Ship(Body):
         self.thruster_angle = 0
         self.type = BodyType.SHIP
         self.obs_radius = obs_radius
-        self.rendered_once = False
 
     def _build(self, init_angle, init_x, init_y, **kwargs):
         self.body = self.world.CreateDynamicBody(
@@ -146,7 +160,8 @@ class Ship(Body):
 
         self.thruster_angle = np.clip(self.thruster_angle + steer, -Ship.THRUSTER_MAX_ANGLE, Ship.THRUSTER_MAX_ANGLE)
 
-    def reset(self):
+    def clean(self):
+        super().clean()
         self.throttle = 0
         self.thruster_angle = 0
 
@@ -162,8 +177,6 @@ class Ship(Body):
                 (self.THRUSTER_WIDTH / 2, -self.THRUSTER_HEIGHT),
                 (-self.THRUSTER_WIDTH / 2, -self.THRUSTER_HEIGHT)))
             
-            thruster.name = "thruster"
-            
             thruster.add_attr(self.thrustertrans) # add thruster angle, assigned later
             thruster.add_attr(self.shiptrans) # add ship angle and ship position, assigned later
             thruster.set_color(*self.body.color1)
@@ -178,15 +191,13 @@ class Ship(Body):
             COG.add_attr(self.COGtrans) # add COG position
             COG.add_attr(self.shiptrans) # add ship angle and ship position
 
-            COG.name = "COG"
-            
             COG.set_color(0.0, 0.0, 0.0)
             viewer.add_geom(COG)
             horizon = rendering.make_circle(radius=self.obs_radius, res=60, filled=False)
             horizon.set_color(*self.body.color1)
             horizon.add_attr(self.shiptrans) # add ship angle and ship position
 
-        viewer.add_geom(horizon)
+            viewer.add_geom(horizon)
 
         trans = self.body.transform
         for f in self.body.fixtures:
@@ -197,7 +208,8 @@ class Ship(Body):
         self.shiptrans.set_rotation(self.body.angle)
         self.thrustertrans.set_rotation(self.thruster_angle)
         self.COGtrans.set_translation(*self.body.localCenter)
-
+        
+        self.rendered_once = True
 
 class Rock(RoundObstacle):
     RADIUS = 20
