@@ -252,17 +252,18 @@ class ShipLidar(Ship):
         Ship.__init__(self, world, init_angle, init_x, init_y, 0, **kwargs)
         self.nb_lidars = nb_lidars
         self.lidar_range = lidar_range
-        self.lidars = [LidarCallback() for _ in range(self.nb_lidars)]
+        self.lidars = [LidarCallback(dont_report = [BodyType.TARGET]) for _ in range(self.nb_lidars)]
         self.update()
 
     def _update_lidars(self):
         pos = self.body.position
+        angle = self.body.angle
         for i, lidar in enumerate(self.lidars):
             lidar.fraction = 1.0
             lidar.p1 = pos
             lidar.p2 = (
-                    pos[0] + math.sin(2 * math.pi * i / self.nb_lidars) * self.lidar_range,
-                    pos[1] - math.cos(2 * math.pi / self.nb_lidars) * self.lidar_range)
+                    pos[0] + math.sin((angle + 2 * math.pi * i) / self.nb_lidars) * self.lidar_range,
+                    pos[1] - math.cos((angle + 2 * math.pi * i) / self.nb_lidars) * self.lidar_range)
             self.world.RayCast(lidar, lidar.p1, lidar.p2)
     
     def update(self):
