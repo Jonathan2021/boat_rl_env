@@ -5,6 +5,7 @@ import abc
 from shipNavEnv.utils import getColor, rgb
 from enum import Enum
 from gym.envs.classic_control import rendering
+from shipNavEnv.Callbacks import LidarCallback
 
 class BodyType(Enum):
     BODY = 0,
@@ -53,6 +54,13 @@ class Body:
     def render(self, viewer):
         pass
 
+    def step(self, fps):
+        pass
+
+    def get_color(self):
+        return self.body.color
+
+
 class Obstacle(Body):
     DEFAULT_DIST = 1
     DEFAULT_BEARING = 0
@@ -64,9 +72,15 @@ class Obstacle(Body):
 
     def clean(self):
         super().clean()
+        self.unsee()
+
+    def unsee(self):
         self.distance_to_ship = self.DEFAULT_DIST
         self.bearing_from_ship = self.DEFAULT_BEARING
         self.seen = False
+
+    def get_color(self):
+        return self.body.color1 if self.is_hit() else self.body.color2 if self.seen else self.body.color3
 
 class RoundObstacle(Obstacle):
     def __init__(self, world, x, y, **kwargs):
@@ -76,10 +90,8 @@ class RoundObstacle(Obstacle):
         trans = self.body.transform
         for f in self.body.fixtures:
             t = rendering.Transform(translation=trans * f.shape.pos)
-            viewer.draw_circle(self.radius, color = (self.body.color1 if self.is_hit() else (self.body.color2 if self.seen else self.body.color3))).add_attr(t)
+            viewer.draw_circle(self.radius, color = self.get_color()).add_attr(t)
             viewer.draw_circle(f.shape.radius, color= (self.body.color2 if self.is_hit() else (self.body.color3 if self.seen else self.body.color2)), filled=False, linewidth=2).add_attr(t)
-            #viewer.draw_circle(f.shape.radius, color= (obj.color1 if f.body.userData.seen else obj.color3)).add_attr(t)
-            #        viewer.draw_circle(f.shape.radius, color= (obj.color3 if f.body.userData.seen else obj.color1), filled=False, linewidth=2).add_attr(t)
 
 
 class Ship(Body):
@@ -88,8 +100,8 @@ class Ship(Body):
     THRUSTER_MAX_ANGLE = 0.4    # [rad]
     THRUSTER_MAX_FORCE = 3e4    # [N]
     THURSTER_MAX_DIFF = 0.1     # ???
-    THRUSTER_MAX_ANGLE_STEP = 0.01 
-    THRUSTER_MAX_THROTTLE_STEP = 0.01
+    THRUSTER_MAX_ANGLE_STEP = 0.60 
+    THRUSTER_MAX_THROTTLE_STEP = 0.60
 
     THRUSTER_HEIGHT = 20        # [m]
     THRUSTER_WIDTH = 0.8        # [m]
@@ -109,7 +121,7 @@ class Ship(Body):
 
 
     def __init__(self, world, init_angle, init_x, init_y, obs_radius, **kwargs):
-        super().__init__(world, init_angle, init_x, init_y, **kwargs)
+        Body.__init__(self, world, init_angle, init_x, init_y, **kwargs)
         self.throttle = 0
         self.thruster_angle = 0
         self.type = BodyType.SHIP
@@ -133,7 +145,7 @@ class Ship(Body):
                 angularDamping=0
                 )
 
-        self.body.color1 = getColor(idx=0)
+        self.body.color = getColor(idx=0)
         self.body.linearVelocity = (0.0,0.0)
         self.body.angularVelocity = 0
         self.body.userData = self
@@ -150,13 +162,12 @@ class Ship(Body):
 
     def thrust(self, throttle, fps=60):
         throttle = np.clip(throttle, -1, 1)
-        throttle = throttle * Ship.THRUSTER_MAX_THROTTLE_STEP * 60 / fps
-
+        throttle = throttle * Ship.THRUSTER_MAX_THROTTLE_STEP / fps
         self.throttle = np.clip(self.throttle + throttle, Ship.THRUSTER_MIN_THROTTLE, 1)
 
     def steer(self, steer, fps=60):
         steer = np.clip(steer, -1, 1)
-        steer = steer * Ship.THRUSTER_MAX_ANGLE_STEP * 60 / fps
+        steer = steer * Ship.THRUSTER_MAX_ANGLE_STEP / fps
 
         self.thruster_angle = np.clip(self.thruster_angle + steer, -Ship.THRUSTER_MAX_ANGLE, Ship.THRUSTER_MAX_ANGLE)
 
@@ -166,6 +177,7 @@ class Ship(Body):
         self.thruster_angle = 0
 
     def render(self, viewer):
+        color = self.get_color()
         if not self.rendered_once:
             self.shiptrans = rendering.Transform()
             self.thrustertrans = rendering.Transform()
@@ -179,7 +191,7 @@ class Ship(Body):
             
             thruster.add_attr(self.thrustertrans) # add thruster angle, assigned later
             thruster.add_attr(self.shiptrans) # add ship angle and ship position, assigned later
-            thruster.set_color(*self.body.color1)
+            thruster.set_color(*color)
             
             viewer.add_geom(thruster)
             
@@ -193,16 +205,17 @@ class Ship(Body):
 
             COG.set_color(0.0, 0.0, 0.0)
             viewer.add_geom(COG)
-            horizon = rendering.make_circle(radius=self.obs_radius, res=60, filled=False)
-            horizon.set_color(*self.body.color1)
-            horizon.add_attr(self.shiptrans) # add ship angle and ship position
+            if self.obs_radius:
+                horizon = rendering.make_circle(radius=self.obs_radius, res=60, filled=False)
+                horizon.set_color(*color)
+                horizon.add_attr(self.shiptrans) # add ship angle and ship position
 
-            viewer.add_geom(horizon)
+                viewer.add_geom(horizon)
 
         trans = self.body.transform
         for f in self.body.fixtures:
             path = [trans * v for v in f.shape.vertices]
-            viewer.draw_polygon(path, color=self.body.color1)
+            viewer.draw_polygon(path, color=color)
 
         self.shiptrans.set_translation(*self.body.position)
         self.shiptrans.set_rotation(self.body.angle)
@@ -210,7 +223,85 @@ class Ship(Body):
         self.COGtrans.set_translation(*self.body.localCenter)
         
         self.rendered_once = True
+    
+    def update(self):
+        pass
 
+    def step(self, fps):
+        COGpos = self.body.GetWorldPoint(self.body.localCenter)
+
+        force_thruster = (-np.sin(self.body.angle + self.thruster_angle) * self.THRUSTER_MAX_FORCE,
+                  np.cos(self.body.angle + self.thruster_angle) * self.THRUSTER_MAX_FORCE )
+        
+        localVelocity = self.body.GetLocalVector(self.body.linearVelocity)
+
+        force_damping_in_ship_frame = (-localVelocity[0] * Ship.K_Yv,-localVelocity[1] *Ship.K_Xu)
+        
+        force_damping = self.body.GetWorldVector(force_damping_in_ship_frame)
+        force_damping = (np.cos(self.body.angle)* force_damping_in_ship_frame[0] -np.sin(self.body.angle) * force_damping_in_ship_frame[1],
+                  np.sin(self.body.angle)* force_damping_in_ship_frame[0] + np.cos(self.body.angle) * force_damping_in_ship_frame[1] )
+        
+        torque_damping = -self.body.angularVelocity *Ship.K_Nr
+
+        self.body.ApplyTorque(torque=torque_damping,wake=False)
+        self.body.ApplyForce(force=force_thruster, point=self.body.position, wake=False)
+        self.body.ApplyForce(force=force_damping, point=COGpos, wake=False)
+
+class ShipLidar(Ship):
+    def __init__(self, world, init_angle, init_x, init_y, nb_lidars, lidar_range, **kwargs):
+        Ship.__init__(self, world, init_angle, init_x, init_y, 0, **kwargs)
+        self.nb_lidars = nb_lidars
+        self.lidar_range = lidar_range
+        self.lidars = [LidarCallback() for _ in range(self.nb_lidars)]
+        self.update()
+
+    def _update_lidars(self):
+        pos = self.body.position
+        for i, lidar in enumerate(self.lidars):
+            lidar.fraction = 1.0
+            lidar.p1 = pos
+            lidar.p2 = (
+                    pos[0] + math.sin(2 * math.pi * i / self.nb_lidars) * self.lidar_range,
+                    pos[1] - math.cos(2 * math.pi / self.nb_lidars) * self.lidar_range)
+            self.world.RayCast(lidar, lidar.p1, lidar.p2)
+    
+    def update(self):
+        self._update_lidars()
+
+    def render(self, viewer):
+        Ship.render(self, viewer)
+        for lidar in self.lidars:
+            viewer.draw_polyline( [lidar.p1, lidar.p2], color=rgb(255, 0, 0), linewidth=1)
+
+class ShipObstacle(Ship, Obstacle):
+    def __init__(self, world, init_angle, init_x, init_y, **kwargs):
+        #super(Obstacle).__init__(world, init_x, init_y)
+        Obstacle.clean(self)
+        Ship.__init__(self, world, init_angle, init_x, init_y, 0, **kwargs)
+
+    def _build(self, init_angle, init_x, init_y, **kwargs):
+        Ship._build(self, init_angle, init_x, init_y, **kwargs)
+        self.body.color1 = rgb(83, 43, 9) # brown
+        self.body.color2 = rgb(41, 14, 9) # darker brown
+        self.body.color3 = rgb(255, 255, 255) # seen
+        self.doSleep = True
+
+    def render(self, viewer):
+        Ship.render(self, viewer)
+
+    def take_random_actions(self, fps):
+        steer = np.random.uniform(-1, 1)
+        thrust = np.random.uniform(-1, 1)
+        self.steer(steer, fps)
+        self.thrust(thrust, fps)
+    
+    def step(self, fps):
+        self.take_random_actions(fps)
+        Ship.step(self, fps)
+
+    def get_color(self):
+        return self.body.color1 if self.is_hit() else self.body.color2 if self.seen else self.body.color3
+    
 class Rock(RoundObstacle):
     RADIUS = 20
     def __init__(self, world, x, y, **kwargs):

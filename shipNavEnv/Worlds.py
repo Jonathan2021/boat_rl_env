@@ -1,5 +1,5 @@
 import Box2D
-from shipNavEnv.Bodies import Ship, Rock, Target, Body
+from shipNavEnv.Bodies import Ship, Rock, Target, Body, ShipObstacle, ShipLidar
 from shipNavEnv.Callbacks import ContactDetector, PlaceOccupied
 from shipNavEnv.utils import rgb
 import numpy as np
@@ -21,9 +21,12 @@ class World:
         self.viewer = None
         self.populate()
 
+    def _build_ship(self, angle, x=0, y=0):
+        return Ship(self.world, angle, x, y, **self.ship_kwargs if self.ship_kwargs else dict())
+    
     def populate(self):
         angle = self.get_random_angle()
-        self.ship = Ship(self.world, angle, 0, 0, **self.ship_kwargs if self.ship_kwargs else dict())
+        self.ship = self._build_ship(angle)
         self.get_random_free_space(self.ship)
 
         self.target = Target(self.world, 0, 0)
@@ -83,7 +86,7 @@ class World:
         return self.ship.body.GetLocalVector((x_distance,y_distance))
 
     def get_ship_dist(self, x):
-        return np.linalg.norm(self._get_local_ship_pos_dist(x))
+        return np.linalg.norm(self._get_local_ship_pos_dist(x)) - (x.radius if hasattr(x, 'radius') else 0)
 
     def get_ship_target_dist(self):
         return self.get_ship_dist(self.target)
@@ -115,29 +118,12 @@ class World:
                 obstacle.bearing_from_ship = bearing
                 obstacle.seen = self.ship.can_see(obstacle)
                 if not obstacle.seen:
-                    obstacle.clean()
+                    obstacle.unsee()
                     
 
     def step(self, fps):
-        COGpos = self.ship.body.GetWorldPoint(self.ship.body.localCenter)
-
-        force_thruster = (-np.sin(self.ship.body.angle + self.ship.thruster_angle) * self.ship.THRUSTER_MAX_FORCE,
-                  np.cos(self.ship.body.angle + self.ship.thruster_angle) * self.ship.THRUSTER_MAX_FORCE )
-        
-        localVelocity = self.ship.body.GetLocalVector(self.ship.body.linearVelocity)
-
-        force_damping_in_ship_frame = (-localVelocity[0] * Ship.K_Yv,-localVelocity[1] *Ship.K_Xu)
-        
-        force_damping = self.ship.body.GetWorldVector(force_damping_in_ship_frame)
-        force_damping = (np.cos(self.ship.body.angle)* force_damping_in_ship_frame[0] -np.sin(self.ship.body.angle) * force_damping_in_ship_frame[1],
-                  np.sin(self.ship.body.angle)* force_damping_in_ship_frame[0] + np.cos(self.ship.body.angle) * force_damping_in_ship_frame[1] )
-        
-        torque_damping = -self.ship.body.angularVelocity *Ship.K_Nr
-
-        self.ship.body.ApplyTorque(torque=torque_damping,wake=False)
-        self.ship.body.ApplyForce(force=force_thruster, point=self.ship.body.position, wake=False)
-        self.ship.body.ApplyForce(force=force_damping, point=COGpos, wake=False)
-
+        for body in self.get_bodies():
+            body.step(fps)
         ### DEBUG ###
         #print('Step: %d \nShip: %s\nLocals: %s' % (self.stepnumber, self.ship, locals()))
         
@@ -146,6 +132,7 @@ class World:
         positionIterations = 3
         self.world.Step(1.0 / fps, velocityIterations, positionIterations)
         
+        self.ship.update()
         self.update_obstacle_data()
 
     def render(self, mode='human', close=False):
@@ -201,11 +188,11 @@ class World:
 
 
 class RockOnlyWorld(World):
-    def __init__(self, n_rocks, ship_kwargs):
+    def __init__(self, n_rocks, ship_kwargs=None):
         self.n_rocks = n_rocks
         super().__init__(ship_kwargs)
 
-    def populate(self, nb_rocks = 20):
+    def populate(self):
         for i in range(self.n_rocks):
             x, y = self.get_random_pos()
             rock = Rock(self.world, x, y)
@@ -213,9 +200,28 @@ class RockOnlyWorld(World):
 
         super().populate()
 
-class ShipsOnlyMap(World):
-    def __init__(self):
-        super().__init__()
+class RockOnlyWorldLidar(RockOnlyWorld):
+    def __init__(self, n_rocks, n_lidars, ship_kwargs=None):
+        self.n_lidars = n_lidars
+        RockOnlyWorld.__init__(self, n_rocks, ship_kwargs)
+
+    def _build_ship(self, angle, x=0, y=0):
+        return ShipLidar(self.world, angle, x, y, self.n_lidars, np.maximum(self.WIDTH, self.HEIGHT), **self.ship_kwargs if self.ship_kwargs else dict())
+
+
+class ShipsOnlyWorld(World):
+    def __init__(self, n_ships, ship_kwargs=None):
+        self.n_ships = n_ships
+        super().__init__(ship_kwargs)
+
+    def populate(self):
+        for i in range(self.n_ships):
+            x, y = self.get_random_pos()
+            angle = self.get_random_angle()
+            ship = ShipObstacle(self.world, angle, x, y)
+            self.ships.append(ship)
+
+        super().populate()
 
 class ShipsAndRocksMap(World):
     def __init__(self):

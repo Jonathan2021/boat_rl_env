@@ -19,5 +19,10 @@ register(
 
 register(
     id='ShipNav-v1',
-    entry_point='shipNavEnv.envs:ShipNavRocksMultiShips',
+    entry_point='shipNavEnv.envs:ShipNavRocksLidar',
+)
+
+register(
+    id='ShipNav-v2',
+    entry_point='shipNavEnv.envs:ShipNavMultiShips',
 )

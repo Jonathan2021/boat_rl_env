@@ -13,9 +13,8 @@ from Box2D.b2 import (circleShape, fixtureDef, polygonShape, contactListener)
 import gym
 from gym import spaces
 from gym.utils import seeding
-from shipNavEnv.utils import getColor, rgb
-from shipNavEnv.Bodies import Ship, Rock
-from shipNavEnv.Worlds import RockOnlyWorld
+from shipNavEnv.utils import getColor, rgb, draw_random_in_list
+from shipNavEnv.Worlds import RockOnlyWorld, RockOnlyWorldLidar
 
 """
 The objective of this environment is control a ship to reach a target
@@ -47,16 +46,6 @@ Discrete control inputs are:
 MAX_STEPS = 1000    # max steps for a simulation
 FPS = 60            # simulation framerate
 
-# return (distance, bearing) tuple of target relatively to ship
-def getDistanceBearing(ship,target):
-    COGpos = ship.GetWorldPoint(ship.localCenter)
-    x_distance = (target.position[0] - COGpos[0])
-    y_distance = (target.position[1] - COGpos[1])
-    localPos = ship.GetLocalVector((x_distance,y_distance))
-    distance = np.linalg.norm(localPos)
-    bearing = np.arctan2(localPos[0], localPos[1])
-    return (distance, bearing)
-
 # gym env class
 class ShipNavRocks(gym.Env):
 
@@ -68,7 +57,7 @@ class ShipNavRocks(gym.Env):
         self._read_kwargs(**kwargs)
            
         self.seed()
-        self.world = RockOnlyWorld(self.n_rocks, {'obs_radius': self.obs_radius})
+        self.world = self._build_world()
         
         # inital conditions
         # FIXME: Redundant with reset()
@@ -80,14 +69,22 @@ class ShipNavRocks(gym.Env):
         self.drawlist = None
         self.traj = []
         self.state = None
+        self.obstacles = []
         
         # Observation are continuous in [-1, 1] 
-        self.observation_space = spaces.Box(-1.0,1.0,shape=(4 +2*self.n_rocks_obs,), dtype=np.float32)
+        self.observation_space = self._get_obs_space()
         
         # Left or Right (or nothing)
         self.action_space = spaces.Discrete(3)
        
         self.reset()
+
+    def _build_world(self):
+        return RockOnlyWorld(self.n_rocks, {'obs_radius': self.obs_radius})
+
+    def _get_obs_space(self):
+        return spaces.Box(-1.0,1.0,shape=(4 + 2 * self.n_rocks_obs,), dtype=np.float32)
+
 
     def _read_kwargs(self, **kwargs):
         n_rocks_default = 0
@@ -95,8 +92,9 @@ class ShipNavRocks(gym.Env):
 
         n_rocks_obs_default = self.n_rocks
         self.n_rocks_obs = kwargs.get('n_rocks_obs', n_rocks_obs_default)
+        self.n_obstacles_obs = self.n_rocks_obs
 
-        obs_radius_default = 200
+        obs_radius_default = 800
         self.obs_radius = kwargs.get('obs_radius', obs_radius_default)
         
         fps_default = FPS
@@ -107,7 +105,6 @@ class ShipNavRocks(gym.Env):
 
         display_traj_T_default = 0.1
         self.display_traj_T = kwargs.get('display_traj_T', display_traj_T_default)
-         
 
 
     def seed(self, seed=None):
@@ -116,68 +113,106 @@ class ShipNavRocks(gym.Env):
 
     def reset(self):
         self.world.reset()
+        self.obstacles = []
 
 
         self.stepnumber = 0
         self.episode_reward = 0
 
-        return self.step(2)[0] #FIXME Doesn't that mean we already do one time step ? Expected behavior ?
-
-    def step(self, action):
+        return self._get_state()
+    
+    def _take_actions(self, action):
         ship = self.world.ship
-
-        done = False
-        state = []
-
+        
         #print('ACTION %d' % action)
-        assert self.action_space.contains(action), "%r (%s) invalid " % (action, type(action))
+        #assert self.action_space.contains(action), "%r (%s) invalid " % (action, type(action))
         # implement action
         # thruster angle and throttle saturation
-        if action == 0:
-            ship.steer(1, self.fps)
-        elif action == 1:
-            ship.steer(-1, self.fps)
+        if action is not None:
+            if action == 0:
+                ship.steer(1, self.fps)
+            elif action == 1:
+                ship.steer(-1, self.fps)
         #else:
         #    print("Doing nothing !")
 
-        ship.thrust(0, self.fps)
+        #ship.thrust(0, self.fps)
 
-        self.world.step(self.fps)
+    def _get_obstacles(self):
+        return self._get_obstacles_conservative()
 
-        # Normalized ship states
-        #state += list(np.asarray(self.ship.body.GetLocalVector(self.ship.body.linearVelocity))/Ship.Vmax)
-        state.append(ship.body.angularVelocity/Ship.Rmax)
-        state.append(ship.thruster_angle / Ship.THRUSTER_MAX_ANGLE)
-        state.append(self.world.get_ship_target_standard_dist())
-        state.append(self.world.get_ship_target_standard_bearing())
-        
+    def _get_obstacles_conservative(self):
         obstacles = self.world.get_obstacles()
-
         # sort rocks from closest to farthest
         obstacles.sort(key=lambda x: (0 if x.seen else 1, x.distance_to_ship))
+
+        new_seen = []
+        for obs in obstacles:
+            if obs.seen and obs not in self.obstacles: # Obstacle is seen and isn't in previously observed obstacles
+                new_seen.append(obs)
+            
+        new_obstacles = []
+        #print("new seen %s" % new_seen)
+        for obs in self.obstacles:
+            if not obs.seen and new_seen: # If old obstacle seen is not seen anymore, and some new to add
+                new_obstacles.append(new_seen[0]) #Add closest one instead of a random one
+                del new_seen[0]
+                # new_obstacles.append(draw_random_in_list(new_seen))
+            else:
+                # If still valid
+                # If no new to replace, keep the old one (it's seen value should have been reset and will be handled in the function getting state)
+                new_obstacles.append(obs)
+            
+        new_obstacles += new_seen # If still some new seen left, add them at the tail
+        self.obstacles = new_obstacles
+
+        #FIXME Should it be handled in the world itself ?
+        for obs in self.obstacles[self.n_obstacles_obs:]: # see only limited amount of obstacles
+            obs.seen = False
+
+        self.obstacles = self.obstacles[:self.n_obstacles_obs] # keep track for next iteration of that limited amount
         
-        for i in range(self.n_rocks_obs):
-            if i < len(obstacles):
-                state.append(self.world.get_ship_standard_dist(obstacles[i]))
+        return self.obstacles
+
+    def _get_ship_state(self):
+        ship = self.world.ship
+
+        state = []
+        state.append(ship.body.angularVelocity/ship.Rmax)
+        state.append(ship.thruster_angle / ship.THRUSTER_MAX_ANGLE)
+        state.append(self.world.get_ship_target_standard_dist())
+        state.append(self.world.get_ship_target_standard_bearing())
+        return state        
+
+
+    def _get_state(self):
+        ship = self.world.ship
+        state = self._get_ship_state()
+        obstacles = self._get_obstacles()
+        
+        for i in range(self.n_obstacles_obs):
+            if i < len(obstacles) and obstacles[i].seen:
+                state.append(2 * self.world.get_ship_dist(obstacles[i]) / ship.obs_radius - 1)
                 state.append(self.world.get_ship_standard_bearing(obstacles[i]))
             else:
                 state.append(1)
-                state.append(0)
-        
-        #FIXME Separate function
-        # REWARD -------------------------------------------------------------------------------------------------------
-        self.reward = 0
+                state.append(np.random.uniform(-1, 1))
+        return np.array(state, dtype=np.float32)
+    
+    def _get_reward_done(self):
+        ship = self.world.ship
+
+        reward = 0
+        done = False
         #print(distance_t)
         
         if ship.is_hit(): # FIXME Will not know if hit is new or not !
             if self.world.target in ship.hit_with:
-                self.reward = +10 #high positive reward. hitting target is good
+                reward += 10 #high positive reward. hitting target is good
                 #print("Hit target, ending")
-                done = True
             else:
-                pass
-                self.reward = -0.5 #high negative reward. hitting anything else than target is bad
-            #done = True
+                reward -= 5 #high negative reward. hitting anything else than target is bad
+            done = True
         else:   # general case, we're trying to reach target so being close should be rewarded
             pass
             #self.reward = - 1/ MAX_STEPS
@@ -186,16 +221,32 @@ class ShipNavRocks(gym.Env):
         
         # limits episode to MAX_STEPS
         if self.stepnumber >= MAX_STEPS:
-            #self.reward = -1
+            self.reward -= 5
             done = True
 
+        return reward, done
+
+    def step(self, action):
+        ship = self.world.ship
+
+        self._take_actions(action)
+
+        self.world.step(self.fps)
+        self.stepnumber += 1
+        
+        self.state = self._get_state()
+        #if not (self.stepnumber % FPS):
+        #print(self.state)
+
+        # Normalized ship states
+        #state += list(np.asarray(self.ship.body.GetLocalVector(self.ship.body.linearVelocity))/Ship.Vmax)
+       
+        
+        #FIXME Separate function
+        
+        self.reward, done = self._get_reward_done()
         self.episode_reward += self.reward
 
-        # REWARD -------------------------------------------------------------------------------------------------------
-
-        self.stepnumber += 1
-        self.state = np.array(state, dtype=np.float32)
-        
         #FIXME separate function
         #render trajectory
         if self.display_traj:
@@ -210,3 +261,58 @@ class ShipNavRocks(gym.Env):
     def render(self, mode='human', close=False):
         #print([d.userData for d in self.drawlist])
         return self.world.render(mode, close)
+
+class ShipNavRocksContinuousSteer(ShipNavRocks):
+    def __init__(self,**kwargs):
+        super().__init__(**kwargs)
+        self.action_space = spaces.Box(np.array([-1]), np.array([1]), dtype=np.float32) # steer right or left
+
+    def _take_actions(self, action):
+        if action is not None:
+            self.world.ship.steer(action[0], self.fps)
+
+class ShipNavRocksSteerAndThrustDiscrete(ShipNavRocks):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.action_space = spaces.MultiDiscrete([3, 3])
+
+    def _take_actions(self, action):
+        if action is not None:
+            super()._take_actions(self, action[0])
+            if action[1] == 0:
+                self.world.ship.thrust(-1, self.fps)
+            elif action[1] == 1:
+                self.world.ship.thrust(1, self.fps)
+
+
+class ShipNavRocksLidar(ShipNavRocks):
+    def _read_kwargs(self, **kwargs):
+        n_rocks_default = 0
+        self.n_rocks = kwargs.get('n_rocks', n_rocks_default)
+
+        n_lidars_default = 10
+        self.n_lidars = kwargs.get('n_lidars', n_lidars_default)
+        
+        fps_default = FPS
+        self.fps = kwargs.get('FPS', fps_default)
+
+        display_traj_default = False
+        self.display_traj = kwargs.get('display_traj', display_traj_default)
+
+        display_traj_T_default = 0.1
+        self.display_traj_T = kwargs.get('display_traj_T', display_traj_T_default)
+
+    def _build_world(self):
+        return RockOnlyWorldLidar(self.n_rocks, self.n_lidars)
+
+    def _get_obs_space(self):
+        return spaces.Box(-1.0,1.0,shape=(4 +  self.n_lidars,), dtype=np.float32)
+    
+    def _get_state(self):
+        ship = self.world.ship
+        state = self._get_ship_state()
+
+        state += [l.fraction for l in ship.lidars] 
+        
+        return np.array(state, dtype=np.float32)
+            
