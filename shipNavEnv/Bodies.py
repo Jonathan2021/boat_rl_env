@@ -113,7 +113,7 @@ class Ship(Body):
     # dummy parameters for fast simulation
     SHIP_MASS = 27e1            # [kg]
     SHIP_INERTIA = 280e1        # [kg.m²]
-    Vmax = 300                  # [m/s]
+    Vmax = 120                  # [m/s]
     Rmax = 1*np.pi              #[rad/s]
     K_Nr = (THRUSTER_MAX_FORCE*SHIP_HEIGHT*math.sin(THRUSTER_MAX_ANGLE)/(2*Rmax)) # [N.m/(rad/s)]
     K_Xu = THRUSTER_MAX_FORCE/Vmax # [N/(m/s)]
@@ -234,13 +234,13 @@ class Ship(Body):
                   np.cos(self.body.angle + self.thruster_angle) * self.THRUSTER_MAX_FORCE )
         
         localVelocity = self.body.GetLocalVector(self.body.linearVelocity)
-
+        #print("local velocity Vx = {Vx} Vy = {Vy}".format(Vx = localVelocity[1], Vy = localVelocity[0]))
         force_damping_in_ship_frame = (-localVelocity[0] * Ship.K_Yv,-localVelocity[1] *Ship.K_Xu)
         
         force_damping = self.body.GetWorldVector(force_damping_in_ship_frame)
         force_damping = (np.cos(self.body.angle)* force_damping_in_ship_frame[0] -np.sin(self.body.angle) * force_damping_in_ship_frame[1],
                   np.sin(self.body.angle)* force_damping_in_ship_frame[0] + np.cos(self.body.angle) * force_damping_in_ship_frame[1] )
-        
+        #print("force_damping Fx = {Fx} Fy = {Fy} Ftot = {Ftot} N".format(Fx = force_damping[0], Fy = force_damping[1], Ftot = np.sqrt(force_damping[0]**2+force_damping[1]**2)))
         torque_damping = -self.body.angularVelocity *Ship.K_Nr
 
         self.body.ApplyTorque(torque=torque_damping,wake=False)

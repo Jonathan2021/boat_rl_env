@@ -241,8 +241,8 @@ class ShipNavRocks(gym.Env):
 
         #if self.stepnumber == 1:
         #    print(len(self.state))
-        print(ship.body.linearVelocity)
-        print(abs(ship.body.linearVelocity[0]) + abs(ship.body.linearVelocity[1]))
+        #print(ship.body.linearVelocity)
+        #print(np.sqrt(ship.body.linearVelocity[0]**2 + ship.body.linearVelocity[1]**2))
         #if not (self.stepnumber % self.FPS):
         #    print(self.state)
 
