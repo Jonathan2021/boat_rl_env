@@ -43,11 +43,11 @@ Discrete control inputs are:
     - no action
 """
 
-MAX_STEPS = 1000    # max steps for a simulation
-FPS = 60            # simulation framerate
 
 # gym env class
 class ShipNavRocks(gym.Env):
+    MAX_STEPS = 1000    # max steps for a simulation
+    FPS = 60            # simulation framerate
 
     def __init__(self,**kwargs):
         
@@ -80,7 +80,7 @@ class ShipNavRocks(gym.Env):
         self.reset()
 
     def _build_world(self):
-        return RockOnlyWorld(self.n_rocks, {'obs_radius': self.obs_radius})
+        return RockOnlyWorld(self.n_rocks, self.rock_scale, {'obs_radius': self.obs_radius})
 
     def _get_obs_space(self):
         return spaces.Box(-1.0,1.0,shape=(4 + 2 * self.n_rocks_obs,), dtype=np.float32)
@@ -90,6 +90,9 @@ class ShipNavRocks(gym.Env):
         n_rocks_default = 0
         self.n_rocks = kwargs.get('n_rocks', n_rocks_default)
 
+        rock_scale_default = RockOnlyWorld.ROCK_SCALE_DEFAULT
+        self.rock_scale = kwargs.get('rock_scale', rock_scale_default)
+
         n_rocks_obs_default = self.n_rocks
         self.n_rocks_obs = kwargs.get('n_rocks_obs', n_rocks_obs_default)
         self.n_obstacles_obs = self.n_rocks_obs
@@ -97,8 +100,8 @@ class ShipNavRocks(gym.Env):
         obs_radius_default = 800
         self.obs_radius = kwargs.get('obs_radius', obs_radius_default)
         
-        fps_default = FPS
-        self.fps = kwargs.get('FPS', fps_default)
+        fps_default = self.FPS
+        self.fps = kwargs.get('self.FPS', fps_default)
 
         display_traj_default = False
         self.display_traj = kwargs.get('display_traj', display_traj_default)
@@ -178,6 +181,7 @@ class ShipNavRocks(gym.Env):
         ship = self.world.ship
 
         state = []
+        #state.append(ship.body.linearVelocity)
         state.append(ship.body.angularVelocity/ship.Rmax)
         state.append(ship.thruster_angle / ship.THRUSTER_MAX_ANGLE)
         state.append(self.world.get_ship_target_standard_dist())
@@ -192,8 +196,8 @@ class ShipNavRocks(gym.Env):
         
         for i in range(self.n_obstacles_obs):
             if i < len(obstacles) and obstacles[i].seen:
-                state.append(2 * self.world.get_ship_dist(obstacles[i]) / ship.obs_radius - 1)
-                state.append(self.world.get_ship_standard_bearing(obstacles[i]))
+                state.append(np.clip(2 * self.world.get_ship_dist(obstacles[i]) / ship.obs_radius - 1, -1, 1))
+                state.append(np.clip(self.world.get_ship_standard_bearing(obstacles[i]), -1, 1))
             else:
                 state.append(1)
                 state.append(np.random.uniform(-1, 1))
@@ -214,14 +218,13 @@ class ShipNavRocks(gym.Env):
                 reward -= 5 #high negative reward. hitting anything else than target is bad
             done = True
         else:   # general case, we're trying to reach target so being close should be rewarded
-            pass
-            #self.reward = - 1/ MAX_STEPS
-            #self.reward = - ((2* distance_t / norm_pos)  - 1) / MAX_STEPS # FIXME Macro instead of magic number
+            reward -= 1/ self.MAX_STEPS
+            #self.reward = - ((2* distance_t / norm_pos)  - 1) / self.self.MAX_STEPS # FIXME Macro instead of magic number
             #print(self.reward)
         
-        # limits episode to MAX_STEPS
-        if self.stepnumber >= MAX_STEPS:
-            self.reward -= 5
+        # limits episode to self.MAX_STEPS
+        if self.stepnumber >= self.MAX_STEPS:
+            reward -= 5
             done = True
 
         return reward, done
@@ -235,8 +238,13 @@ class ShipNavRocks(gym.Env):
         self.stepnumber += 1
         
         self.state = self._get_state()
-        #if not (self.stepnumber % FPS):
-        #print(self.state)
+
+        #if self.stepnumber == 1:
+        #    print(len(self.state))
+        print(ship.body.linearVelocity)
+        print(abs(ship.body.linearVelocity[0]) + abs(ship.body.linearVelocity[1]))
+        #if not (self.stepnumber % self.FPS):
+        #    print(self.state)
 
         # Normalized ship states
         #state += list(np.asarray(self.ship.body.GetLocalVector(self.ship.body.linearVelocity))/Ship.Vmax)
@@ -290,11 +298,14 @@ class ShipNavRocksLidar(ShipNavRocks):
         n_rocks_default = 0
         self.n_rocks = kwargs.get('n_rocks', n_rocks_default)
 
+        rock_scale_default = RockOnlyWorldLidar.ROCK_SCALE_DEFAULT
+        self.rock_scale = kwargs.get('rock_scale', rock_scale_default)
+
         n_lidars_default = 10
         self.n_lidars = kwargs.get('n_lidars', n_lidars_default)
         
-        fps_default = FPS
-        self.fps = kwargs.get('FPS', fps_default)
+        fps_default = self.FPS
+        self.fps = kwargs.get('self.FPS', fps_default)
 
         display_traj_default = False
         self.display_traj = kwargs.get('display_traj', display_traj_default)
@@ -303,7 +314,7 @@ class ShipNavRocksLidar(ShipNavRocks):
         self.display_traj_T = kwargs.get('display_traj_T', display_traj_T_default)
 
     def _build_world(self):
-        return RockOnlyWorldLidar(self.n_rocks, self.n_lidars)
+        return RockOnlyWorldLidar(self.n_rocks, self.n_lidars, self.rock_scale)
 
     def _get_obs_space(self):
         return spaces.Box(-1.0,1.0,shape=(4 +  self.n_lidars,), dtype=np.float32)

@@ -52,8 +52,9 @@ class World:
         self.ships = []
         self.rocks = []
 
-    def get_random_pos(self):
-        return np.random.uniform( [0 ,0], [World.WIDTH, World.HEIGHT])
+    def get_random_pos(self, scale=1):
+        extension = (scale - 1) / 2
+        return np.random.uniform( [0 - extension * self.WIDTH, 0 + - extension * self.HEIGHT], [self.WIDTH * (1 + extension), self.HEIGHT * (1 + extension)])
     
     def get_random_angle(self):
         return np.random.uniform(0, 2 * math.pi)
@@ -62,7 +63,7 @@ class World:
         if trial == limit:
             return False # FIXME (maybe take something outside world border
         body_ = body.body
-        query = PlaceOccupied()
+        query = PlaceOccupied(ignore=[body])
         position = self.get_random_pos()
         body_.position = position
         for fixture in body_.fixtures:
@@ -188,22 +189,24 @@ class World:
 
 
 class RockOnlyWorld(World):
-    def __init__(self, n_rocks, ship_kwargs=None):
+    ROCK_SCALE_DEFAULT = 3
+    def __init__(self, n_rocks, rock_scale = ROCK_SCALE_DEFAULT, ship_kwargs=None):
         self.n_rocks = n_rocks
+        self.rock_scale = rock_scale
         super().__init__(ship_kwargs)
 
     def populate(self):
         for i in range(self.n_rocks):
-            x, y = self.get_random_pos()
+            x, y = self.get_random_pos(scale = self.rock_scale)
             rock = Rock(self.world, x, y)
             self.rocks.append(rock)
 
-        super().populate()
+        World.populate(self)
 
 class RockOnlyWorldLidar(RockOnlyWorld):
-    def __init__(self, n_rocks, n_lidars, ship_kwargs=None):
+    def __init__(self, n_rocks, n_lidars, rock_scale = RockOnlyWorld.ROCK_SCALE_DEFAULT, ship_kwargs=None):
         self.n_lidars = n_lidars
-        RockOnlyWorld.__init__(self, n_rocks, ship_kwargs)
+        RockOnlyWorld.__init__(self, n_rocks, rock_scale, ship_kwargs)
 
     def _build_ship(self, angle, x=0, y=0):
         return ShipLidar(self.world, angle, x, y, self.n_lidars, np.maximum(self.WIDTH, self.HEIGHT), **self.ship_kwargs if self.ship_kwargs else dict())
