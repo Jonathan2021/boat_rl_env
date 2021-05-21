@@ -21,15 +21,15 @@ class World:
         self.viewer = None
         self.populate()
 
-    def _build_ship(self, angle, x=0, y=0):
-        return Ship(self.world, angle, x, y, **self.ship_kwargs if self.ship_kwargs else dict())
+    def _build_ship(self, angle, position=(0,0)):
+        return Ship(self.world, angle, position, **self.ship_kwargs if self.ship_kwargs else dict())
     
     def populate(self):
         angle = self.get_random_angle()
         self.ship = self._build_ship(angle)
         self.get_random_free_space(self.ship)
 
-        self.target = Target(self.world, 0, 0)
+        self.target = Target(self.world, (0, 0))
         self.get_random_free_space(self.target)
 
     def reset(self):
@@ -59,6 +59,8 @@ class World:
     def get_random_angle(self):
         return np.random.uniform(0, 2 * math.pi)
 
+    # FIXME According to Box2D doc Caution: Do not create a body at the origin and then move it. If you create several bodies at the origin, then performance will suffer.
+    # Fix idea -> use functools partial to create body with position and return it (or destroy it)
     def get_random_free_space(self, body : Body, trial = 0, limit = 100):
         if trial == limit:
             return False # FIXME (maybe take something outside world border
@@ -197,8 +199,8 @@ class RockOnlyWorld(World):
 
     def populate(self):
         for i in range(self.n_rocks):
-            x, y = self.get_random_pos(scale = self.rock_scale)
-            rock = Rock(self.world, x, y)
+            pos = self.get_random_pos(scale = self.rock_scale)
+            rock = Rock(self.world, pos)
             self.rocks.append(rock)
 
         World.populate(self)
@@ -208,8 +210,8 @@ class RockOnlyWorldLidar(RockOnlyWorld):
         self.n_lidars = n_lidars
         RockOnlyWorld.__init__(self, n_rocks, rock_scale, ship_kwargs)
 
-    def _build_ship(self, angle, x=0, y=0):
-        return ShipLidar(self.world, angle, x, y, self.n_lidars, np.maximum(self.WIDTH, self.HEIGHT), **self.ship_kwargs if self.ship_kwargs else dict())
+    def _build_ship(self, angle, position=(0,0)):
+        return ShipLidar(self.world, angle, position, self.n_lidars, np.maximum(self.WIDTH, self.HEIGHT), **self.ship_kwargs if self.ship_kwargs else dict())
 
 
 class ShipsOnlyWorld(World):
@@ -219,9 +221,9 @@ class ShipsOnlyWorld(World):
 
     def populate(self):
         for i in range(self.n_ships):
-            x, y = self.get_random_pos()
+            pos = self.get_random_pos()
             angle = self.get_random_angle()
-            ship = ShipObstacle(self.world, angle, x, y)
+            ship = ShipObstacle(self.world, angle, pos)
             self.ships.append(ship)
 
         super().populate()

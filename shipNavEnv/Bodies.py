@@ -14,7 +14,7 @@ class BodyType(Enum):
     TARGET = 3
 
 class Body:
-    def __init__(self, world, *args, **kwargs):
+    def __init__(self, world,*args, **kwargs):
         self.world = world
         self.body = None
         self.hit_with = []
@@ -64,8 +64,8 @@ class Body:
 class Obstacle(Body):
     DEFAULT_DIST = 1
     DEFAULT_BEARING = 0
-    def __init__(self, world, x, y, **kwargs):
-        super().__init__(world, x, y, **kwargs)
+    def __init__(self, world, position, **kwargs):
+        super().__init__(world, position, **kwargs)
         self.distance_to_ship = self.DEFAULT_DIST
         self.bearing_from_ship = self.DEFAULT_BEARING
         self.seen = False
@@ -83,8 +83,8 @@ class Obstacle(Body):
         return self.body.color1 if self.is_hit() else self.body.color2 if self.seen else self.body.color3
 
 class RoundObstacle(Obstacle):
-    def __init__(self, world, x, y, **kwargs):
-        super().__init__(world, x, y, **kwargs)
+    def __init__(self, world, position, **kwargs):
+        super().__init__(world, position, **kwargs)
 
     def render(self, viewer):
         trans = self.body.transform
@@ -120,16 +120,16 @@ class Ship(Body):
     K_Yv = 10*K_Xu              # [N/(m/s)]
 
 
-    def __init__(self, world, init_angle, init_x, init_y, obs_radius, **kwargs):
-        Body.__init__(self, world, init_angle, init_x, init_y, **kwargs)
+    def __init__(self, world, init_angle, position, obs_radius, **kwargs):
+        Body.__init__(self, world, init_angle, position, **kwargs)
         self.throttle = 0
         self.thruster_angle = 0
         self.type = BodyType.SHIP
         self.obs_radius = obs_radius
 
-    def _build(self, init_angle, init_x, init_y, **kwargs):
+    def _build(self, init_angle, position, **kwargs):
         self.body = self.world.CreateDynamicBody(
-                position=(init_x, init_y),
+                position=position,
                 angle=init_angle,
                 fixtures=fixtureDef(
                     shape=polygonShape(vertices=((-Ship.SHIP_WIDTH / 2, 0),
@@ -248,8 +248,8 @@ class Ship(Body):
         self.body.ApplyForce(force=force_damping, point=COGpos, wake=False)
 
 class ShipLidar(Ship):
-    def __init__(self, world, init_angle, init_x, init_y, nb_lidars, lidar_range, **kwargs):
-        Ship.__init__(self, world, init_angle, init_x, init_y, 0, **kwargs)
+    def __init__(self, world, init_angle, position, nb_lidars, lidar_range, **kwargs):
+        Ship.__init__(self, world, init_angle, position, 0, **kwargs)
         self.nb_lidars = nb_lidars
         self.lidar_range = lidar_range
         self.lidars = [LidarCallback(dont_report = [BodyType.TARGET]) for _ in range(self.nb_lidars)]
@@ -257,13 +257,13 @@ class ShipLidar(Ship):
 
     def _update_lidars(self):
         pos = self.body.position
-        angle = self.body.angle
+        angle = self.body.angle + np.pi/2
         for i, lidar in enumerate(self.lidars):
             lidar.fraction = 1.0
             lidar.p1 = pos
             lidar.p2 = (
-                    pos[0] + math.sin((angle + 2 * math.pi * i) / self.nb_lidars) * self.lidar_range,
-                    pos[1] - math.cos((angle + 2 * math.pi * i) / self.nb_lidars) * self.lidar_range)
+                    pos[0] + math.sin((2 * math.pi * i) / self.nb_lidars + angle) * self.lidar_range,
+                    pos[1] - math.cos((2 * math.pi * i) / self.nb_lidars + angle) * self.lidar_range)
             self.world.RayCast(lidar, lidar.p1, lidar.p2)
     
     def update(self):
@@ -275,13 +275,13 @@ class ShipLidar(Ship):
             viewer.draw_polyline( [lidar.p1, lidar.p2], color=rgb(255, 0, 0), linewidth=1)
 
 class ShipObstacle(Ship, Obstacle):
-    def __init__(self, world, init_angle, init_x, init_y, **kwargs):
+    def __init__(self, world, init_angle, position, **kwargs):
         #super(Obstacle).__init__(world, init_x, init_y)
         Obstacle.clean(self)
-        Ship.__init__(self, world, init_angle, init_x, init_y, 0, **kwargs)
+        Ship.__init__(self, world, init_angle, position, 0, **kwargs)
 
-    def _build(self, init_angle, init_x, init_y, **kwargs):
-        Ship._build(self, init_angle, init_x, init_y, **kwargs)
+    def _build(self, *args, **kwargs):
+        Ship._build(self, *args, **kwargs)
         self.body.color1 = rgb(83, 43, 9) # brown
         self.body.color2 = rgb(41, 14, 9) # darker brown
         self.body.color3 = rgb(255, 255, 255) # seen
@@ -305,15 +305,15 @@ class ShipObstacle(Ship, Obstacle):
     
 class Rock(RoundObstacle):
     RADIUS = 20
-    def __init__(self, world, x, y, **kwargs):
-        super().__init__(world, x, y, **kwargs)
+    def __init__(self, world, position, **kwargs):
+        super().__init__(world, position, **kwargs)
         self.type = BodyType.ROCK
 
-    def _build(self, x, y, **kwargs):
+    def _build(self, position, **kwargs):
         radius = np.random.uniform(0.5*Rock.RADIUS,2*Rock.RADIUS)
 
         self.body = self.world.CreateStaticBody(
-            position=(x, y), # FIXME Should have something like: map.get_random_available_position()
+            position=position, # FIXME Should have something like: map.get_random_available_position()
             angle=np.random.uniform( 0, 2*math.pi), # FIXME Not really useful if circle shaped
             fixtures=fixtureDef(
             shape = circleShape(pos=(0,0),radius = radius),
@@ -330,13 +330,13 @@ class Rock(RoundObstacle):
 
 class Target(RoundObstacle):
     RADIUS = 20
-    def __init__(self, world, x, y, **kwargs):
-        super().__init__(world, x, y, **kwargs)
+    def __init__(self, world, position, **kwargs):
+        super().__init__(world, position, **kwargs)
         self.type = BodyType.TARGET
 
-    def _build(self, x, y, **kwargs):
+    def _build(self, position, **kwargs):
         self.body =  self.world.CreateStaticBody(
-            position = (x, y),
+            position = position,
             angle = 0.0,
             fixtures = fixtureDef(
             shape = circleShape(pos=(0,0), radius = Target.RADIUS),

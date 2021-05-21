@@ -48,6 +48,7 @@ Discrete control inputs are:
 class ShipNavRocks(gym.Env):
     MAX_STEPS = 1000    # max steps for a simulation
     FPS = 60            # simulation framerate
+    SHIP_STATE_LENGTH = 6
 
     def __init__(self,**kwargs):
         
@@ -83,7 +84,7 @@ class ShipNavRocks(gym.Env):
         return RockOnlyWorld(self.n_rocks, self.rock_scale, {'obs_radius': self.obs_radius})
 
     def _get_obs_space(self):
-        return spaces.Box(-1.0,1.0,shape=(4 + 2 * self.n_rocks_obs,), dtype=np.float32)
+        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + 2 * self.n_rocks_obs,), dtype=np.float32)
 
 
     def _read_kwargs(self, **kwargs):
@@ -148,6 +149,7 @@ class ShipNavRocks(gym.Env):
         obstacles = self.world.get_obstacles()
         # sort rocks from closest to farthest
         obstacles.sort(key=lambda x: (0 if x.seen else 1, x.distance_to_ship))
+        #print([obstacle.seen for obstacle in obstacles])
 
         new_seen = []
         for obs in obstacles:
@@ -155,7 +157,6 @@ class ShipNavRocks(gym.Env):
                 new_seen.append(obs)
             
         new_obstacles = []
-        #print("new seen %s" % new_seen)
         for obs in self.obstacles:
             if not obs.seen and new_seen: # If old obstacle seen is not seen anymore, and some new to add
                 new_obstacles.append(new_seen[0]) #Add closest one instead of a random one
@@ -181,7 +182,9 @@ class ShipNavRocks(gym.Env):
         ship = self.world.ship
 
         state = []
-        #state.append(ship.body.linearVelocity)
+        velocity_x, velocity_y = ship.body.GetLocalVector(ship.body.linearVelocity)
+        state.append(velocity_x / ship.Vmax)
+        state.append(velocity_y / ship.Vmax)
         state.append(ship.body.angularVelocity/ship.Rmax)
         state.append(ship.thruster_angle / ship.THRUSTER_MAX_ANGLE)
         state.append(self.world.get_ship_target_standard_dist())
@@ -218,7 +221,7 @@ class ShipNavRocks(gym.Env):
                 reward -= 5 #high negative reward. hitting anything else than target is bad
             done = True
         else:   # general case, we're trying to reach target so being close should be rewarded
-            reward -= 1/ self.MAX_STEPS
+            reward -= 2/ self.MAX_STEPS
             #self.reward = - ((2* distance_t / norm_pos)  - 1) / self.self.MAX_STEPS # FIXME Macro instead of magic number
             #print(self.reward)
         
@@ -242,9 +245,10 @@ class ShipNavRocks(gym.Env):
         #if self.stepnumber == 1:
         #    print(len(self.state))
         #print(ship.body.linearVelocity)
+        #print(ship.body.GetLocalVector(ship.body.linearVelocity))
         #print(np.sqrt(ship.body.linearVelocity[0]**2 + ship.body.linearVelocity[1]**2))
         #if not (self.stepnumber % self.FPS):
-        #    print(self.state)
+        print(self.state)
 
         # Normalized ship states
         #state += list(np.asarray(self.ship.body.GetLocalVector(self.ship.body.linearVelocity))/Ship.Vmax)
@@ -317,7 +321,7 @@ class ShipNavRocksLidar(ShipNavRocks):
         return RockOnlyWorldLidar(self.n_rocks, self.n_lidars, self.rock_scale)
 
     def _get_obs_space(self):
-        return spaces.Box(-1.0,1.0,shape=(4 +  self.n_lidars,), dtype=np.float32)
+        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH +  self.n_lidars,), dtype=np.float32)
     
     def _get_state(self):
         ship = self.world.ship
