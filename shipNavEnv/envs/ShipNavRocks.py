@@ -47,7 +47,7 @@ Discrete control inputs are:
 # gym env class
 class ShipNavRocks(gym.Env):
     MAX_STEPS = 1000    # max steps for a simulation
-    FPS = 60            # simulation framerate
+    FPS = 30            # simulation framerate
     SHIP_STATE_LENGTH = 6
 
     def __init__(self,**kwargs):
@@ -245,10 +245,11 @@ class ShipNavRocks(gym.Env):
         #if self.stepnumber == 1:
         #    print(len(self.state))
         #print(ship.body.linearVelocity)
+        #print(ship.body.angularVelocity)
         #print(ship.body.GetLocalVector(ship.body.linearVelocity))
         #print(np.sqrt(ship.body.linearVelocity[0]**2 + ship.body.linearVelocity[1]**2))
         #if not (self.stepnumber % self.FPS):
-        print(self.state)
+        #    print(self.state)
 
         # Normalized ship states
         #state += list(np.asarray(self.ship.body.GetLocalVector(self.ship.body.linearVelocity))/Ship.Vmax)
@@ -330,4 +331,3 @@ class ShipNavRocksLidar(ShipNavRocks):
         state += [l.fraction for l in ship.lidars] 
         
         return np.array(state, dtype=np.float32)
-            

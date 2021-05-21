@@ -113,7 +113,7 @@ class Ship(Body):
     # dummy parameters for fast simulation
     SHIP_MASS = 27e1            # [kg]
     SHIP_INERTIA = 280e1        # [kg.m²]
-    Vmax = 120                  # [m/s]
+    Vmax = 20                  # [m/s]
     Rmax = 1*np.pi              #[rad/s]
     K_Nr = (THRUSTER_MAX_FORCE*SHIP_HEIGHT*math.sin(THRUSTER_MAX_ANGLE)/(2*Rmax)) # [N.m/(rad/s)]
     K_Xu = THRUSTER_MAX_FORCE/Vmax # [N/(m/s)]

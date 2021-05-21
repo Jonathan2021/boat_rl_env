@@ -1,4 +1,5 @@
 import Box2D
+from Box2D import b2PolygonShape, b2FixtureDef
 from shipNavEnv.Bodies import Ship, Rock, Target, Body, ShipObstacle, ShipLidar
 from shipNavEnv.Callbacks import ContactDetector, PlaceOccupied
 from shipNavEnv.utils import rgb
@@ -27,7 +28,24 @@ class World:
     def populate(self):
         angle = self.get_random_angle()
         self.ship = self._build_ship(angle)
+
+        # Look ahead to avoid bad initialisations (with rock in front)
+        mass = self.ship.body.massData
+        ship_height = self.ship.SHIP_HEIGHT
+        ship_width = self.ship.SHIP_WIDTH
+        look_ahead_angle = 45 * np.pi / 180
+        look_ahead_distance = 4 * ship_height / np.sin(look_ahead_angle)
+        #diagonal = np.sqrt(self.HEIGHT ** 2 + self.WIDTH ** 2)
+        look_ahead_def = b2FixtureDef(shape=b2PolygonShape(vertices=(
+            (-ship_width / 2,0),
+            (+ship_width / 2, 0),
+            (ship_width / 2 + np.cos(look_ahead_angle) * look_ahead_distance, np.sin(look_ahead_angle) * look_ahead_distance),
+            (-ship_width - np.cos(look_ahead_angle) * look_ahead_distance, np.sin(look_ahead_angle) * look_ahead_distance)
+            )))
+        look_ahead_fixture = self.ship.body.CreateFixture(look_ahead_def, density = 0)
         self.get_random_free_space(self.ship)
+        self.ship.body.DestroyFixture(look_ahead_fixture)
+        self.ship.body.massData = mass # Recalculates mass when destroying a fixture but since we calculated our own, put it back (or body won't move)
 
         self.target = Target(self.world, (0, 0))
         self.get_random_free_space(self.target)
