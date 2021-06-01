@@ -114,10 +114,13 @@ class Ship(Body):
     SHIP_MASS = 27e1            # [kg]
     SHIP_INERTIA = 280e1        # [kg.m²]
     Vmax = 20                  # [m/s]
-    Rmax = 1*np.pi              #[rad/s]
+    Rmax = 1*np.pi / 4             #[rad/s]
     K_Nr = (THRUSTER_MAX_FORCE*SHIP_HEIGHT*math.sin(THRUSTER_MAX_ANGLE)/(2*Rmax)) # [N.m/(rad/s)]
     K_Xu = THRUSTER_MAX_FORCE/Vmax # [N/(m/s)]
-    K_Yv = 10*K_Xu              # [N/(m/s)]
+    SCALE_K_Yv = 10
+    K_Yv = SCALE_K_Yv * K_Xu              # [N/(m/s)]
+    VmaxY = Vmax
+    VmaxX = Vmax / SCALE_K_Yv
 
 
     def __init__(self, world, init_angle, position, obs_radius, **kwargs):
@@ -262,8 +265,8 @@ class ShipLidar(Ship):
             lidar.fraction = 1.0
             lidar.p1 = pos
             lidar.p2 = (
-                    pos[0] + math.sin((2 * math.pi * i) / self.nb_lidars + angle) * self.lidar_range,
-                    pos[1] - math.cos((2 * math.pi * i) / self.nb_lidars + angle) * self.lidar_range)
+                    pos[0] + math.sin((2 * math.pi * i) / self.nb_lidars + angle + math.pi / 2) * self.lidar_range,
+                    pos[1] - math.cos((2 * math.pi * i) / self.nb_lidars + angle + math.pi / 2) * self.lidar_range)
             self.world.RayCast(lidar, lidar.p1, lidar.p2)
     
     def update(self):
@@ -329,17 +332,24 @@ class Rock(RoundObstacle):
         self.body.userData = self
 
 class Target(RoundObstacle):
-    RADIUS = 20
-    def __init__(self, world, position, **kwargs):
+    RADIUS = 30
+    def __init__(self, world, position, random_radius=True, **kwargs):
+        self.random_radius = random_radius
+        self.radius = self.RADIUS
         super().__init__(world, position, **kwargs)
         self.type = BodyType.TARGET
 
     def _build(self, position, **kwargs):
+        if self.random_radius:
+            self.radius = np.random.uniform(0.5*self.RADIUS,2*self.RADIUS)
+        else:
+            self.radius = self.RADIUS
+
         self.body =  self.world.CreateStaticBody(
             position = position,
             angle = 0.0,
             fixtures = fixtureDef(
-            shape = circleShape(pos=(0,0), radius = Target.RADIUS),
+            shape = circleShape(pos=(0,0), radius = self.radius),
             categoryBits=0x0010,
             maskBits=0x1111,
             restitution=0.1))
@@ -347,4 +357,3 @@ class Target(RoundObstacle):
         self.body.color2 = rgb(0,255,0)
         self.body.color3 = rgb(255, 255, 255) # seen
         self.body.userData = self
-        self.radius = self.RADIUS

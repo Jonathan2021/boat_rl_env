@@ -46,9 +46,11 @@ Discrete control inputs are:
 
 # gym env class
 class ShipNavRocks(gym.Env):
-    MAX_STEPS = 1000    # max steps for a simulation
+    MAX_TIME = 90
     FPS = 30            # simulation framerate
+    MAX_STEPS = MAX_TIME * FPS    # max steps for a simulation
     SHIP_STATE_LENGTH = 6
+    WORLD_STATE_LENGTH = 1
 
     def __init__(self,**kwargs):
         
@@ -84,7 +86,7 @@ class ShipNavRocks(gym.Env):
         return RockOnlyWorld(self.n_rocks, self.rock_scale, {'obs_radius': self.obs_radius})
 
     def _get_obs_space(self):
-        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + 2 * self.n_rocks_obs,), dtype=np.float32)
+        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + 2 * self.n_rocks_obs,), dtype=np.float32)
 
 
     def _read_kwargs(self, **kwargs):
@@ -98,7 +100,7 @@ class ShipNavRocks(gym.Env):
         self.n_rocks_obs = kwargs.get('n_rocks_obs', n_rocks_obs_default)
         self.n_obstacles_obs = self.n_rocks_obs
 
-        obs_radius_default = 800
+        obs_radius_default = 400
         self.obs_radius = kwargs.get('obs_radius', obs_radius_default)
         
         fps_default = self.FPS
@@ -183,18 +185,21 @@ class ShipNavRocks(gym.Env):
 
         state = []
         velocity_x, velocity_y = ship.body.GetLocalVector(ship.body.linearVelocity)
-        state.append(velocity_x / ship.Vmax)
-        state.append(velocity_y / ship.Vmax)
+        state.append(velocity_x / ship.VmaxX)
+        state.append(velocity_y / ship.VmaxY)
         state.append(ship.body.angularVelocity/ship.Rmax)
         state.append(ship.thruster_angle / ship.THRUSTER_MAX_ANGLE)
         state.append(self.world.get_ship_target_standard_dist())
         state.append(self.world.get_ship_target_standard_bearing())
         return state        
 
+    def _get_world_state(self):
+        return [2 * self.stepnumber / self.MAX_STEPS - 1]
 
     def _get_state(self):
         ship = self.world.ship
         state = self._get_ship_state()
+        state += self._get_world_state()
         obstacles = self._get_obstacles()
         
         for i in range(self.n_obstacles_obs):
@@ -322,12 +327,13 @@ class ShipNavRocksLidar(ShipNavRocks):
         return RockOnlyWorldLidar(self.n_rocks, self.n_lidars, self.rock_scale)
 
     def _get_obs_space(self):
-        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH +  self.n_lidars,), dtype=np.float32)
+        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + self.n_lidars,), dtype=np.float32)
     
     def _get_state(self):
         ship = self.world.ship
         state = self._get_ship_state()
+        state += self._get_world_state()
 
-        state += [l.fraction for l in ship.lidars] 
+        state += [2 * l.fraction - 1 for l in ship.lidars] 
         
         return np.array(state, dtype=np.float32)

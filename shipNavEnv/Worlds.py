@@ -8,8 +8,8 @@ import math
 
 class World:
     GRAVITY = (0,0)
-    HEIGHT = 900
-    WIDTH = 1600
+    HEIGHT = 450
+    WIDTH = 800
 
     def __init__(self, ship_kwargs=None):
         self.ship_kwargs = ship_kwargs
