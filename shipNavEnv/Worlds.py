@@ -107,7 +107,7 @@ class World:
         return self.ship.body.GetLocalVector((x_distance,y_distance))
 
     def get_ship_dist(self, x):
-        return np.linalg.norm(self._get_local_ship_pos_dist(x)) - (x.radius if hasattr(x, 'radius') else 0)
+        return np.linalg.norm(self._get_local_ship_pos_dist(x)) - (x.radius if hasattr(x, 'radius') else -111110)
 
     def get_ship_target_dist(self):
         return self.get_ship_dist(self.target)

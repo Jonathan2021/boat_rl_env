@@ -135,11 +135,11 @@ class Ship(Body):
                 position=position,
                 angle=init_angle,
                 fixtures=fixtureDef(
-                    shape=polygonShape(vertices=((-Ship.SHIP_WIDTH / 2, 0),
-                        (+Ship.SHIP_WIDTH / 2, 0),
-                        (Ship.SHIP_WIDTH / 2, +Ship.SHIP_HEIGHT),
-                        (0, +Ship.SHIP_HEIGHT*1.2),
-                        (-Ship.SHIP_WIDTH / 2, +Ship.SHIP_HEIGHT))),
+                    shape=polygonShape(vertices=((-self.SHIP_WIDTH / 2, -self.SHIP_HEIGHT/2), 
+                        (+self.SHIP_WIDTH / 2, -self.SHIP_HEIGHT/2),
+                        (self.SHIP_WIDTH / 2, +self.SHIP_HEIGHT/2),
+                        (0, +self.SHIP_HEIGHT*0.6),
+                        (-self.SHIP_WIDTH / 2, +self.SHIP_HEIGHT/2))),
                     density=0.0,
                     categoryBits=0x0010, #FIXME Same category as rocks ?
                     maskBits=0x1111,
@@ -220,7 +220,9 @@ class Ship(Body):
             path = [trans * v for v in f.shape.vertices]
             viewer.draw_polygon(path, color=color)
 
-        self.shiptrans.set_translation(*self.body.position)
+        thrust_x, thrust_y = self.body.GetLocalVector(self.body.position)
+        thrust_y -= self.SHIP_HEIGHT/2
+        self.shiptrans.set_translation(*self.body.GetWorldVector((thrust_x, thrust_y)))
         self.shiptrans.set_rotation(self.body.angle)
         self.thrustertrans.set_rotation(self.thruster_angle)
         self.COGtrans.set_translation(*self.body.localCenter)
@@ -261,12 +263,42 @@ class ShipLidar(Ship):
     def _update_lidars(self):
         pos = self.body.position
         angle = self.body.angle + np.pi/2
+        nb_lib_after_basics = self.nb_lidars - 3
+        nb_back = nb_lib_after_basics // 3
+        nb_front_left = (nb_lib_after_basics - nb_back) // 2
+        nb_front_right = nb_lib_after_basics - nb_back - nb_front_left
+
         for i, lidar in enumerate(self.lidars):
             lidar.fraction = 1.0
             lidar.p1 = pos
-            lidar.p2 = (
-                    pos[0] + math.sin((2 * math.pi * i) / self.nb_lidars + angle + math.pi / 2) * self.lidar_range,
-                    pos[1] - math.cos((2 * math.pi * i) / self.nb_lidars + angle + math.pi / 2) * self.lidar_range)
+            if i == 0:
+                lidar.p2 = (
+                    pos[0] + math.sin(angle + math.pi / 2) * self.lidar_range,
+                    pos[1] - math.cos(angle + math.pi / 2) * self.lidar_range)
+            elif i == 1:
+                lidar.p2 = (
+                    pos[0] + math.sin(angle) * self.lidar_range,
+                    pos[1] - math.cos(angle) * self.lidar_range)
+            elif i == 2:
+                lidar.p2 = (
+                    pos[0] + math.sin(angle + math.pi) * self.lidar_range,
+                    pos[1] - math.cos(angle + math.pi) * self.lidar_range)
+            elif i < nb_back + 3:
+                j = i - 3
+                lidar.p2 = (
+                    pos[0] + math.sin((-math.pi * (j + 1)) / (nb_back + 1) + angle) * self.lidar_range,
+                    pos[1] - math.cos((-math.pi * (j + 1)) / (nb_back + 1) + angle) * self.lidar_range)
+            elif i < 3 + nb_back + nb_front_left:
+                j = i - 3 - nb_back
+                lidar.p2 = (
+                    pos[0] + math.sin((math.pi / 2 * (j + 1)) / (nb_front_left + 1) + angle + math.pi / 2) * self.lidar_range,
+                    pos[1] - math.cos((math.pi / 2 * (j + 1)) / (nb_front_left + 1) + angle + math.pi / 2) * self.lidar_range)
+            else:
+                j = i - 3 - nb_back - nb_front_left
+                lidar.p2 = (
+                    pos[0] + math.sin((math.pi / 2 * (j + 1)) / (nb_front_right + 1) + angle) * self.lidar_range,
+                    pos[1] - math.cos((math.pi / 2 * (j + 1)) / (nb_front_right + 1) + angle) * self.lidar_range)
+                    
             self.world.RayCast(lidar, lidar.p1, lidar.p2)
     
     def update(self):

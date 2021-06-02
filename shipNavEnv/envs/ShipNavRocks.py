@@ -72,6 +72,7 @@ class ShipNavRocks(gym.Env):
         self.drawlist = None
         self.traj = []
         self.state = None
+        self.prev_dist = None
         self.obstacles = []
         
         # Observation are continuous in [-1, 1] 
@@ -124,6 +125,8 @@ class ShipNavRocks(gym.Env):
 
         self.stepnumber = 0
         self.episode_reward = 0
+        self.original_dist = self.world.get_ship_target_dist()
+        self.prev_dist = self.original_dist
 
         return self._get_state()
     
@@ -199,7 +202,7 @@ class ShipNavRocks(gym.Env):
     def _get_state(self):
         ship = self.world.ship
         state = self._get_ship_state()
-        state += self._get_world_state()
+        #state += self._get_world_state()
         obstacles = self._get_obstacles()
         
         for i in range(self.n_obstacles_obs):
@@ -210,6 +213,37 @@ class ShipNavRocks(gym.Env):
                 state.append(1)
                 state.append(np.random.uniform(-1, 1))
         return np.array(state, dtype=np.float32)
+
+    def _dist_reward(self):
+        dist = self.world.get_ship_target_dist()
+        reward = (self.prev_dist - dist) / self.original_dist * 100 # we're trying to reach target so being close should be rewarded
+        self.prev_dist = dist
+        return reward
+
+    def _timestep_reward(self):
+        return -100 / (self.MAX_STEPS) #Trying to reach target as fast as possible, -100 after a MAX_TIME limit
+
+    def _hit_reward(self):
+        ship = self.world.ship
+        done = False
+        reward = 0
+        if ship.is_hit(): # FIXME Will not know if hit is new or not !
+            if self.world.target in ship.hit_with:
+                pass
+                #reward += 10 #high positive reward. hitting target is good
+                #print("Hit target, ending")
+            else:
+                reward -= 50 #high negative reward. hitting anything else than target is bad
+            done = True
+        return reward, done
+
+    def _max_time_reward(self):
+        reward = 0
+        done = False
+        # limits episode to self.MAX_STEPS
+        if self.stepnumber >= self.MAX_STEPS:
+            reward -= 50 # same as rock
+            done = True
     
     def _get_reward_done(self):
         ship = self.world.ship
@@ -217,29 +251,19 @@ class ShipNavRocks(gym.Env):
         reward = 0
         done = False
         #print(distance_t)
+        reward += self._dist_reward()
+        #print("Dist reward %.8f" % reward)
+        time_reward = self._timestep_reward()
+        #print("Time reward %.8f" % time_reward)
+        reward += time_reward
+        reward_hit, done = self._hit_reward()
+        #print("Hit reward %.8f" % reward_hit)
+        reward += reward_hit
         
-        if ship.is_hit(): # FIXME Will not know if hit is new or not !
-            if self.world.target in ship.hit_with:
-                reward += 10 #high positive reward. hitting target is good
-                #print("Hit target, ending")
-            else:
-                reward -= 5 #high negative reward. hitting anything else than target is bad
-            done = True
-        else:   # general case, we're trying to reach target so being close should be rewarded
-            reward -= 2/ self.MAX_STEPS
-            #self.reward = - ((2* distance_t / norm_pos)  - 1) / self.self.MAX_STEPS # FIXME Macro instead of magic number
-            #print(self.reward)
-        
-        # limits episode to self.MAX_STEPS
-        if self.stepnumber >= self.MAX_STEPS:
-            reward -= 5
-            done = True
-
+        #print("Total reward %.8f" % reward)
         return reward, done
 
     def step(self, action):
-        ship = self.world.ship
-
         self._take_actions(action)
 
         self.world.step(self.fps)
@@ -311,7 +335,7 @@ class ShipNavRocksLidar(ShipNavRocks):
         rock_scale_default = RockOnlyWorldLidar.ROCK_SCALE_DEFAULT
         self.rock_scale = kwargs.get('rock_scale', rock_scale_default)
 
-        n_lidars_default = 10
+        n_lidars_default = 11
         self.n_lidars = kwargs.get('n_lidars', n_lidars_default)
         
         fps_default = self.FPS
