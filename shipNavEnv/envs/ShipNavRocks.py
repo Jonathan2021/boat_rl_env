@@ -46,11 +46,11 @@ Discrete control inputs are:
 
 # gym env class
 class ShipNavRocks(gym.Env):
-    MAX_TIME = 90
+    MAX_TIME = 200 # No more fuel at the end
     FPS = 30            # simulation framerate
-    MAX_STEPS = MAX_TIME * FPS    # max steps for a simulation
+    MAX_STEPS = MAX_TIME * FPS  # max steps for a simulation
     SHIP_STATE_LENGTH = 6
-    WORLD_STATE_LENGTH = 1
+    WORLD_STATE_LENGTH = 2
 
     def __init__(self,**kwargs):
         
@@ -118,10 +118,17 @@ class ShipNavRocks(gym.Env):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
+    def _adjust_times(self):
+        self.MAX_TIME_SHOULD_TAKE = 2 * self.world.get_ship_target_dist() / self.world.ship.Vmax + abs(self.world.get_ship_target_standard_bearing()) / self.world.ship.Rmax # Twice the time of agoing to target in a straight line, taking turning into account somewhat
+        self.MAX_TIME_SHOULD_TAKE_STEPS = self.MAX_TIME_SHOULD_TAKE * self.FPS
+
     def reset(self):
         self.world.reset()
         self.obstacles = []
 
+        self._adjust_times()
+
+        #print(self.MAX_TIME_SHOULD_TAKE)
 
         self.stepnumber = 0
         self.episode_reward = 0
@@ -197,12 +204,13 @@ class ShipNavRocks(gym.Env):
         return state        
 
     def _get_world_state(self):
-        return [2 * self.stepnumber / self.MAX_STEPS - 1]
+        return [2 * self.stepnumber / self.MAX_STEPS - 1, np.clip(2*self.stepnumber / self.MAX_TIME_SHOULD_TAKE_STEPS - 1, -1, 1)]
 
     def _get_state(self):
         ship = self.world.ship
-        state = self._get_ship_state()
-        #state += self._get_world_state()
+        state = []
+        state += self._get_ship_state()
+        state += self._get_world_state()
         obstacles = self._get_obstacles()
         
         for i in range(self.n_obstacles_obs):
@@ -221,7 +229,10 @@ class ShipNavRocks(gym.Env):
         return reward
 
     def _timestep_reward(self):
-        return -100 / (self.MAX_STEPS) #Trying to reach target as fast as possible, -100 after a MAX_TIME limit
+        reward = -100 / (self.MAX_STEPS) # Could be analogous to gas left, normalized to be -100 at the end. (ran out of gas)
+        if self.stepnumber > self.MAX_TIME_SHOULD_TAKE_STEPS:
+            reward -= 0.1
+        return reward
 
     def _hit_reward(self):
         ship = self.world.ship
@@ -244,13 +255,11 @@ class ShipNavRocks(gym.Env):
         if self.stepnumber >= self.MAX_STEPS:
             reward -= 50 # same as rock
             done = True
+        return reward, done
     
     def _get_reward_done(self):
-        ship = self.world.ship
-
         reward = 0
         done = False
-        #print(distance_t)
         reward += self._dist_reward()
         #print("Dist reward %.8f" % reward)
         time_reward = self._timestep_reward()
@@ -259,6 +268,10 @@ class ShipNavRocks(gym.Env):
         reward_hit, done = self._hit_reward()
         #print("Hit reward %.8f" % reward_hit)
         reward += reward_hit
+        reward_max_time, done_max_time = self._max_time_reward()
+        #print("Max time reward %.8f" % reward_max_time)
+        reward += reward_max_time
+        done = done or done_max_time
         
         #print("Total reward %.8f" % reward)
         return reward, done
@@ -335,7 +348,7 @@ class ShipNavRocksLidar(ShipNavRocks):
         rock_scale_default = RockOnlyWorldLidar.ROCK_SCALE_DEFAULT
         self.rock_scale = kwargs.get('rock_scale', rock_scale_default)
 
-        n_lidars_default = 11
+        n_lidars_default = 15
         self.n_lidars = kwargs.get('n_lidars', n_lidars_default)
         
         fps_default = self.FPS
