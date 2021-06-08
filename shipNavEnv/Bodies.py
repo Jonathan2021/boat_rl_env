@@ -96,9 +96,9 @@ class RoundObstacle(Obstacle):
 
 class Ship(Body):
     # THRUSTER
-    THRUSTER_MIN_THROTTLE = 0.4 # [%]
     THRUSTER_MAX_ANGLE = 0.4    # [rad]
     THRUSTER_MAX_FORCE = 3e4    # [N]
+    THRUSTER_MIN_THROTTLE = 0.4 # [%]
     THURSTER_MAX_DIFF = 0.1     # ???
     THRUSTER_MAX_ANGLE_STEP = 0.60 
     THRUSTER_MAX_THROTTLE_STEP = 0.60
@@ -125,7 +125,7 @@ class Ship(Body):
 
     def __init__(self, world, init_angle, position, obs_radius, **kwargs):
         Body.__init__(self, world, init_angle, position, **kwargs)
-        self.throttle = 0
+        self.throttle = 1
         self.thruster_angle = 0
         self.type = BodyType.SHIP
         self.obs_radius = obs_radius
@@ -163,12 +163,14 @@ class Ship(Body):
         return obstacle.distance_to_ship < self.obs_radius
         
 
-    def thrust(self, throttle, fps=60):
-        throttle = np.clip(throttle, -1, 1)
-        throttle = throttle * Ship.THRUSTER_MAX_THROTTLE_STEP / fps
-        self.throttle = np.clip(self.throttle + throttle, Ship.THRUSTER_MIN_THROTTLE, 1)
+    def thrust(self, inc_throttle, fps=30):
+        #print(self.body.GetLocalVector(self.body.linearVelocity))
+        inc_throttle = np.clip(inc_throttle, -1, 1)
+        inc_throttle = inc_throttle * Ship.THRUSTER_MAX_THROTTLE_STEP / fps
+        self.throttle = np.clip(self.throttle + inc_throttle, self.THRUSTER_MIN_THROTTLE, 1)
 
-    def steer(self, steer, fps=60):
+
+    def steer(self, steer, fps=30):
         steer = np.clip(steer, -1, 1)
         steer = steer * Ship.THRUSTER_MAX_ANGLE_STEP / fps
 
@@ -176,7 +178,7 @@ class Ship(Body):
 
     def clean(self):
         super().clean()
-        self.throttle = 0
+        self.throttle = 1
         self.thruster_angle = 0
 
     def render(self, viewer):
@@ -235,8 +237,8 @@ class Ship(Body):
     def step(self, fps):
         COGpos = self.body.GetWorldPoint(self.body.localCenter)
 
-        force_thruster = (-np.sin(self.body.angle + self.thruster_angle) * self.THRUSTER_MAX_FORCE,
-                  np.cos(self.body.angle + self.thruster_angle) * self.THRUSTER_MAX_FORCE )
+        force_thruster = (-np.sin(self.body.angle + self.thruster_angle) * self.THRUSTER_MAX_FORCE * self.throttle,
+                  np.cos(self.body.angle + self.thruster_angle) * self.THRUSTER_MAX_FORCE * self.throttle)
         
         localVelocity = self.body.GetLocalVector(self.body.linearVelocity)
         #print("local velocity Vx = {Vx} Vy = {Vy}".format(Vx = localVelocity[1], Vy = localVelocity[0]))

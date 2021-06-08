@@ -26,3 +26,13 @@ register(
     id='ShipNav-v2',
     entry_point='shipNavEnv.envs:ShipNavMultiShips',
 )
+
+register(
+    id='ShipNav-v3',
+    entry_point='shipNavEnv.envs:ShipNavRocksContinuousSteer',
+)
+
+register(
+    id='ShipNav-v4',
+    entry_point='shipNavEnv.envs:ShipNavRocksSteerAndThrustContinuous',
+)

@@ -10,6 +10,7 @@ class World:
     GRAVITY = (0,0)
     HEIGHT = 450
     WIDTH = 800
+    DIAGONAL = np.sqrt(HEIGHT ** 2 + WIDTH ** 2)
 
     def __init__(self, ship_kwargs=None):
         self.ship_kwargs = ship_kwargs
@@ -113,7 +114,7 @@ class World:
         return self.get_ship_dist(self.target)
 
     def get_ship_standard_dist(self, x):
-        return 2 * self.get_ship_dist(x) / np.maximum(self.WIDTH, self.HEIGHT) - 1
+        return 2 * self.get_ship_dist(x) / self.DIAGONAL - 1
 
     def get_ship_target_standard_dist(self):
         return self.get_ship_standard_dist(self.target)
@@ -209,7 +210,7 @@ class World:
 
 
 class RockOnlyWorld(World):
-    ROCK_SCALE_DEFAULT = 3
+    ROCK_SCALE_DEFAULT = 2
     def __init__(self, n_rocks, rock_scale = ROCK_SCALE_DEFAULT, ship_kwargs=None):
         self.n_rocks = n_rocks
         self.rock_scale = rock_scale
@@ -229,7 +230,7 @@ class RockOnlyWorldLidar(RockOnlyWorld):
         RockOnlyWorld.__init__(self, n_rocks, rock_scale, ship_kwargs)
 
     def _build_ship(self, angle, position=(0,0)):
-        return ShipLidar(self.world, angle, position, self.n_lidars, np.maximum(self.WIDTH, self.HEIGHT), **self.ship_kwargs if self.ship_kwargs else dict())
+        return ShipLidar(self.world, angle, position, self.n_lidars, 150, **self.ship_kwargs if self.ship_kwargs else dict())
 
 
 class ShipsOnlyWorld(World):

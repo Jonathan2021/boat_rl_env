@@ -1,2 +1,2 @@
-from shipNavEnv.envs.ShipNavRocks import ShipNavRocks, ShipNavRocksLidar
+from shipNavEnv.envs.ShipNavRocks import ShipNavRocks, ShipNavRocksLidar, ShipNavRocksContinuousSteer, ShipNavRocksSteerAndThrustContinuous
 from shipNavEnv.envs.ShipNavMultiShips import ShipNavMultiShips

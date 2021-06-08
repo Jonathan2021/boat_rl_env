@@ -6,14 +6,10 @@ Created on Tue Feb 13 10:19:52 2020
 @author: Gilles Foinet
 """
 
-import math
 import numpy as np
-import Box2D
-from Box2D.b2 import (circleShape, fixtureDef, polygonShape, contactListener)
 import gym
 from gym import spaces
 from gym.utils import seeding
-from shipNavEnv.utils import getColor, rgb, draw_random_in_list
 from shipNavEnv.Worlds import RockOnlyWorld, RockOnlyWorldLidar
 
 """
@@ -71,7 +67,6 @@ class ShipNavRocks(gym.Env):
         self.episode_reward = 0
         self.drawlist = None
         self.traj = []
-        self.state = None
         self.prev_dist = None
         self.obstacles = []
         
@@ -87,7 +82,7 @@ class ShipNavRocks(gym.Env):
         return RockOnlyWorld(self.n_rocks, self.rock_scale, {'obs_radius': self.obs_radius})
 
     def _get_obs_space(self):
-        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + 2 * self.n_rocks_obs,), dtype=np.float32)
+        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + 2 * self.n_obstacles_obs,), dtype=np.float32)
 
 
     def _read_kwargs(self, **kwargs):
@@ -105,7 +100,7 @@ class ShipNavRocks(gym.Env):
         self.obs_radius = kwargs.get('obs_radius', obs_radius_default)
         
         fps_default = self.FPS
-        self.fps = kwargs.get('self.FPS', fps_default)
+        self.fps = kwargs.get('fps', fps_default)
 
         display_traj_default = False
         self.display_traj = kwargs.get('display_traj', display_traj_default)
@@ -120,7 +115,7 @@ class ShipNavRocks(gym.Env):
 
     def _adjust_times(self):
         self.MAX_TIME_SHOULD_TAKE = 2 * self.world.get_ship_target_dist() / self.world.ship.Vmax + abs(self.world.get_ship_target_standard_bearing()) / self.world.ship.Rmax # Twice the time of agoing to target in a straight line, taking turning into account somewhat
-        self.MAX_TIME_SHOULD_TAKE_STEPS = self.MAX_TIME_SHOULD_TAKE * self.FPS
+        self.MAX_TIME_SHOULD_TAKE_STEPS = self.MAX_TIME_SHOULD_TAKE * self.fps
 
     def reset(self):
         self.world.reset()
@@ -134,6 +129,7 @@ class ShipNavRocks(gym.Env):
         self.episode_reward = 0
         self.original_dist = self.world.get_ship_target_dist()
         self.prev_dist = self.original_dist
+        self.is_success = False
 
         return self._get_state()
     
@@ -204,7 +200,7 @@ class ShipNavRocks(gym.Env):
         return state        
 
     def _get_world_state(self):
-        return [2 * self.stepnumber / self.MAX_STEPS - 1, np.clip(2*self.stepnumber / self.MAX_TIME_SHOULD_TAKE_STEPS - 1, -1, 1)]
+        return [2 * self.stepnumber / self.MAX_STEPS - 1, 2*self.MAX_TIME_SHOULD_TAKE / self.MAX_TIME - 1]
 
     def _get_state(self):
         ship = self.world.ship
@@ -240,7 +236,7 @@ class ShipNavRocks(gym.Env):
         reward = 0
         if ship.is_hit(): # FIXME Will not know if hit is new or not !
             if self.world.target in ship.hit_with:
-                pass
+                self.is_success = True
                 #reward += 10 #high positive reward. hitting target is good
                 #print("Hit target, ending")
             else:
@@ -292,6 +288,7 @@ class ShipNavRocks(gym.Env):
         #print(np.sqrt(ship.body.linearVelocity[0]**2 + ship.body.linearVelocity[1]**2))
         #if not (self.stepnumber % self.FPS):
         #    print(self.state)
+        #print(self.world.get_ship_target_bearing())
 
         # Normalized ship states
         #state += list(np.asarray(self.ship.body.GetLocalVector(self.ship.body.linearVelocity))/Ship.Vmax)
@@ -311,7 +308,7 @@ class ShipNavRocks(gym.Env):
         # print(state)
         # if done: 
         #     print("Returning reward %d" % self.reward)
-        return self.state, self.reward, done, {}
+        return self.state, self.reward, done, {"is_success": self.is_success}
 
     def render(self, mode='human', close=False):
         #print([d.userData for d in self.drawlist])
@@ -339,6 +336,17 @@ class ShipNavRocksSteerAndThrustDiscrete(ShipNavRocks):
             elif action[1] == 1:
                 self.world.ship.thrust(1, self.fps)
 
+class ShipNavRocksSteerAndThrustContinuous(ShipNavRocks):
+    def __init__(self,**kwargs):
+        super().__init__(**kwargs)
+        self.action_space = spaces.Box(np.array([-1, -1]), np.array([1, 1]), dtype=np.float32) # steer right or left
+
+    def _take_actions(self, action):
+        if action is not None:
+            self.world.ship.steer(action[0], self.fps)
+            self.world.ship.thrust(action[1], self.fps)
+
+
 
 class ShipNavRocksLidar(ShipNavRocks):
     def _read_kwargs(self, **kwargs):
@@ -352,7 +360,7 @@ class ShipNavRocksLidar(ShipNavRocks):
         self.n_lidars = kwargs.get('n_lidars', n_lidars_default)
         
         fps_default = self.FPS
-        self.fps = kwargs.get('self.FPS', fps_default)
+        self.fps = kwargs.get('fps', fps_default)
 
         display_traj_default = False
         self.display_traj = kwargs.get('display_traj', display_traj_default)

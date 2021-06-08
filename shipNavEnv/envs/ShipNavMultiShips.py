@@ -6,14 +6,6 @@ Created on Thu Dec 17 16:46:23 2020
 @author: gfo
 """
 
-import math
-import numpy as np
-import Box2D
-from Box2D.b2 import (circleShape, fixtureDef, polygonShape, contactListener)
-import gym
-from gym import spaces
-from gym.utils import seeding
-from shipNavEnv.utils import getColor
 from shipNavEnv.Worlds import ShipsOnlyWorld
 from shipNavEnv.envs import ShipNavRocks
 
@@ -45,11 +37,16 @@ Discrete control inputs are:
     - no action
 """
 
-MAX_STEPS = 1000    # max steps for a simulation
-FPS = 60            # simulation framerate
 
 # gym env class
 class ShipNavMultiShips(ShipNavRocks):
+
+    FPS = 30          # simulation framerate
+    MAX_TIME = 200    # max steps for a simulation
+    MAX_STEPS = MAX_TIME * FPS  # max steps for a simulation
+    SHIP_STATE_LENGTH = 6
+    WORLD_STATE_LENGTH = 2
+
     metadata = {
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second': FPS
@@ -66,8 +63,8 @@ class ShipNavMultiShips(ShipNavRocks):
         obs_radius_default = 200
         self.obs_radius = kwargs.get('obs_radius', obs_radius_default)
         
-        fps_default = FPS
-        self.fps = kwargs.get('FPS', fps_default)
+        fps_default = self.FPS
+        self.fps = kwargs.get('fps', fps_default)
 
         display_traj_default = False
         self.display_traj = kwargs.get('display_traj', display_traj_default)
@@ -76,27 +73,5 @@ class ShipNavMultiShips(ShipNavRocks):
         self.display_traj_T = kwargs.get('display_traj_T', display_traj_T_default)
 
 
-
-    def __init__(self,**kwargs):
-        self._read_kwargs(**kwargs) 
-        self.seed()
-
-        self.world = ShipsOnlyWorld(self.n_ships, {'obs_radius': self.obs_radius})
-
-        
-        self.episode_number = 0
-        self.stepnumber = 0
-        self.state = []
-        self.reward = 0
-        self.episode_reward = 0
-        self.drawlist = None
-        self.traj = []
-        self.state = None
-
-        self.observation_space = spaces.Box(-1.0,1.0,shape=(4 + 2 * self.n_ships,), dtype=np.float32)
-        self.action_space = spaces.Discrete(3)
-        
-        self.reset()
-
-def rgb(r, g, b):
-    return float(r) / 255, float(g) / 255, float(b) / 255
+    def _build_world(self):
+        return ShipsOnlyWorld(self.n_ships, {'obs_radius': self.obs_radius})
