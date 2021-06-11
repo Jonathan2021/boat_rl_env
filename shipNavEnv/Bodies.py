@@ -394,8 +394,11 @@ class Target(RoundObstacle):
             shape = circleShape(pos=(0,0), radius = self.radius),
             categoryBits=0x0010,
             maskBits=0x1111,
-            restitution=0.1))
-        self.body.color1 = rgb(255,0,0)
-        self.body.color2 = rgb(0,255,0)
-        self.body.color3 = rgb(255, 255, 255) # seen
+            restitution=0.1, isSensor=True))
         self.body.userData = self
+    
+    def render(self, viewer):
+        trans = self.body.transform
+        for f in self.body.fixtures:
+            t = rendering.Transform(translation=trans * f.shape.pos)
+            viewer.draw_circle(f.shape.radius, color= rgb(15,15,15), filled=False, linewidth=2).add_attr(t)

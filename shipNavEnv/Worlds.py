@@ -2,7 +2,7 @@ import Box2D
 from Box2D import b2PolygonShape, b2FixtureDef, b2ChainShape, b2EdgeShape, b2CircleShape
 from shipNavEnv.Bodies import Ship, Rock, Target, Body, ShipObstacle, ShipLidar, BodyType
 from shipNavEnv.Callbacks import ContactDetector, PlaceOccupied, CheckObstacleRayCallback
-from shipNavEnv.utils import rgb, calc_angle_two_points
+from shipNavEnv.utils import rgb, calc_angle_two_points, get_path_dist
 from shipNavEnv.grid_logic.Grid import GridAdapter
 import numpy as np
 import math
@@ -14,7 +14,7 @@ class World:
     DIAGONAL = np.sqrt(HEIGHT ** 2 + WIDTH ** 2)
     WAYPOINT_RADIUS = Ship.SHIP_HEIGHT
 
-    def __init__(self, ship_kwargs=None, scale = 1):
+    def __init__(self, ship_kwargs=None, scale = 1, waypoint_support=True):
         self.ship_kwargs = ship_kwargs
         self.listener = ContactDetector()
         self.world = Box2D.b2World(contactListener = self.listener, gravity = World.GRAVITY)
@@ -23,12 +23,15 @@ class World:
         self.rocks = []
         self.ship = None
         self.viewer = None
-        self.grid = None
-        self.waypoints = []
         self.path = []
         self.populate()
-        self.do_all_grid_stuff()
         self.scale = scale
+
+        self.waypoint_support = waypoint_support
+
+        self.grid = None
+        self.waypoints = []
+        self.do_all_grid_stuff()
         #print(self.ship.body.position)
         #print(self.target.body.position)
         #print(self.rocks[0].body.position)
@@ -56,7 +59,7 @@ class World:
                 pairs = [(p1, p2), ((p1[0] + dx, p1[1] + dy), (p2[0] + dx, p2[1] + dy)), ((p1[0] - dx, p1[1] - dy), (p2[0] - dx, p2[1] - dy))]
                 is_ok = True
                 for (test1, test2) in pairs:
-                    callback = CheckObstacleRayCallback(dont_report=[BodyType.TARGET])
+                    callback = CheckObstacleRayCallback(dont_report=[BodyType.TARGET, BodyType.SHIP]) #Had to add BodyType ship because it hit itself sometimes but probably a good idea because we will have ship at somepoint
                     self.world.RayCast(callback, test1, test2)
                     if  callback.hit_obstacle:
                         is_ok = False
@@ -73,17 +76,15 @@ class World:
         self.path = self.get_ship_target_path()
         self.expected_dist = 0
         if self.path:
+            self.path[0] = tuple(self.ship.body.position)
+            self.path[-1] = tuple(self.target.body.position)
             self.squeeze_path(margin=self.ship.MAX_LENGTH / 2)
         self.waypoints = self.path[1:-1] # stripping of target and ship
         self.estimate_dist()
     
     def estimate_dist(self):
-        self.dist_estimate = 0
         if self.path:
-            for i in range(len(self.path) - 1):
-                x1, y1 = self.path[i]
-                x2, y2 = self.path[i + 1]
-                self.dist_estimate += np.linalg.norm((x2 - x1, y2 - y1))
+            self.dist_estimate = get_path_dist(self.path)
         else:
             self.dist_estimate = 1.5 * self.get_ship_target_dist()
 
@@ -116,8 +117,8 @@ class World:
             self.ship.body.DestroyFixture(look_ahead_fixture)
             if got_free_space:
                 break
-        if not got_free_space:
-            print("No free space") # Maybe add a counter or something
+        #if not got_free_space:
+        #    print("No free space") # Maybe add a counter or something
         
         self.ship.body.massData = mass # Recalculates mass when destroying a fixture but since we calculated our own, put it back (or body won't move)
 
@@ -191,33 +192,39 @@ class World:
             return self.waypoints[0]
         return self.target
 
+    def _get_pos_dist(self, x1, x2):
+        x1, y1 = x1.body.position if isinstance(x1, Body) else x1
+        x2, y2 = x2.body.position if isinstance(x2, Body) else x2
+        return (x2 - x1, y2 - y1) 
+
+
     def _get_local_ship_pos_dist(self, x):
-        if isinstance(x, Body):
-            x_x, x_y = x.body.position
+        return self.ship.body.GetLocalVector(self._get_pos_dist(self.ship, x))
+
+    def get_ship_dist(self, x, use_waypoints=False):
+        if not use_waypoints or not self.waypoints:
+            dist = np.linalg.norm(self._get_local_ship_pos_dist(x))
         else:
-            x_x, x_y = x
-        COGpos = self.ship.body.GetWorldPoint(self.ship.body.localCenter)
-        x_distance = (x_x - COGpos[0])
-        y_distance = (x_y - COGpos[1])
-        return self.ship.body.GetLocalVector((x_distance,y_distance))
+            dist = get_path_dist([self.ship.body.position] + self.waypoints)
+            dist += np.linalg.norm(self._get_pos_dist(self.waypoints[-1], x))
+        dist -= (x.radius if hasattr(x, 'radius') else 0)
+        return dist
 
-    def get_ship_dist(self, x):
-        return np.linalg.norm(self._get_local_ship_pos_dist(x)) - (x.radius if hasattr(x, 'radius') else 0)
 
-    def get_ship_target_dist(self):
-        return self.get_ship_dist(self.target)
+    def get_ship_target_dist(self, use_waypoints=True):
+        return self.get_ship_dist(self.target, use_waypoints=use_waypoints)
     
     def get_ship_objective_dist(self):
-        return self.get_ship_dist(self.get_next_objective())
+        return self.get_ship_dist(self.get_next_objective(), use_waypoints=False)
 
-    def get_ship_standard_dist(self, x):
-        return 2 * self.get_ship_dist(x) / self.DIAGONAL - 1
+    def get_ship_standard_dist(self, x, use_waypoints=False):
+        return 2 * self.get_ship_dist(x, use_waypoints=use_waypoints) / self.DIAGONAL - 1
 
-    def get_ship_target_standard_dist(self):
-        return self.get_ship_standard_dist(self.target)
+    def get_ship_target_standard_dist(self, use_waypoints=True):
+        return self.get_ship_standard_dist(self.target, use_waypoints)
 
     def get_ship_objective_standard_dist(self):
-        return self.get_ship_standard_dist(self.get_next_objective())
+        return self.get_ship_standard_dist(self.get_next_objective(), use_waypoints=False)
 
     def get_ship_bearing(self, x):
         localPos = self._get_local_ship_pos_dist(x)
@@ -247,6 +254,13 @@ class World:
                 obstacle.seen = self.ship.can_see(obstacle)
                 if not obstacle.seen:
                     obstacle.unsee()
+    def update_waypoints(self):
+        if self.waypoints:
+            way_x, way_y = self.waypoints[0]
+            ship_x, ship_y = self.ship.body.position
+            if np.linalg.norm((way_x - ship_x, way_y - ship_y)) < self.WAYPOINT_RADIUS:
+                #print("Changed waypoint")
+                self.waypoints = self.waypoints[1:]
                     
 
     def step(self, fps):
@@ -258,17 +272,17 @@ class World:
         # one step forward
         velocityIterations = 8
         positionIterations = 3
+        prev_dist = self.get_ship_objective_dist()
         self.world.Step(1.0 / fps, velocityIterations, positionIterations)
+        self.delta_dist = prev_dist - self.get_ship_objective_dist()
         
         self.ship.update()
         self.update_obstacle_data()
+        self.update_waypoints()
         
-        if self.waypoints:
-            way_x, way_y = self.waypoints[0]
-            ship_x, ship_y = self.ship.body.position
-            if np.linalg.norm((way_x - ship_x, way_y - ship_y)) < self.WAYPOINT_RADIUS:
-                self.waypoints = self.waypoints[1:]
         #print(self.get_ship_target_path())
+    def is_success(self):
+        return self.get_ship_target_dist() <= 0 # since - radius, that means center is inside
 
     def render(self, mode='human', close=False):
         DEBORDER = 10
@@ -336,11 +350,11 @@ class World:
 
 class RockOnlyWorld(World):
     ROCK_SCALE_DEFAULT = 2
-    def __init__(self, n_rocks, rock_scale = ROCK_SCALE_DEFAULT, ship_kwargs=None):
+    def __init__(self, n_rocks, rock_scale = ROCK_SCALE_DEFAULT, ship_kwargs=None, waypoint_support=True):
         self.n_rocks = n_rocks
         self.rock_scale = rock_scale
         self.scale = self.rock_scale
-        super().__init__(ship_kwargs, self.rock_scale)
+        super().__init__(ship_kwargs, self.rock_scale, waypoint_support)
 
     def populate(self):
         for i in range(self.n_rocks):
@@ -352,9 +366,9 @@ class RockOnlyWorld(World):
         World.populate(self)
 
 class RockOnlyWorldLidar(RockOnlyWorld):
-    def __init__(self, n_rocks, n_lidars, rock_scale = RockOnlyWorld.ROCK_SCALE_DEFAULT, ship_kwargs=None):
+    def __init__(self, n_rocks, n_lidars, rock_scale = RockOnlyWorld.ROCK_SCALE_DEFAULT, ship_kwargs=None, waypoint_support=True):
         self.n_lidars = n_lidars
-        RockOnlyWorld.__init__(self, n_rocks, rock_scale, ship_kwargs)
+        RockOnlyWorld.__init__(self, n_rocks, rock_scale, ship_kwargs, waypoint_support)
 
     def _build_ship(self, angle, position=(0,0)):
         return ShipLidar(self.world, angle, position, self.n_lidars, 150, **self.ship_kwargs if self.ship_kwargs else dict())
@@ -363,7 +377,7 @@ class RockOnlyWorldLidar(RockOnlyWorld):
 class ShipsOnlyWorld(World):
     def __init__(self, n_ships, ship_kwargs=None):
         self.n_ships = n_ships
-        super().__init__(ship_kwargs)
+        super().__init__(ship_kwargs, waypoint_support=False)
 
     def populate(self):
         for i in range(self.n_ships):

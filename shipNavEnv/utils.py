@@ -41,3 +41,11 @@ def calc_angle_two_points(p1, p2):
     dx = x2 - x1
     dy = y2 - y1
     return math.atan2(dy, dx)
+
+def get_path_dist(path):
+    dist = 0
+    for i in range(len(path) - 1):
+        x1, y1 = path[i]
+        x2, y2 = path[i + 1]
+        dist += np.linalg.norm((x2 - x1, y2 - y1))
+    return dist

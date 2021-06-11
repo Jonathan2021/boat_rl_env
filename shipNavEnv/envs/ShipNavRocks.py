@@ -79,7 +79,7 @@ class ShipNavRocks(gym.Env):
         self.reset()
 
     def _build_world(self):
-        return RockOnlyWorld(self.n_rocks, self.rock_scale, {'obs_radius': self.obs_radius})
+        return RockOnlyWorld(self.n_rocks, self.rock_scale, {'obs_radius': self.obs_radius}, self.waypoints)
 
     def _get_obs_space(self):
         return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + 2 * self.n_obstacles_obs,), dtype=np.float32)
@@ -98,6 +98,9 @@ class ShipNavRocks(gym.Env):
 
         obs_radius_default = 400
         self.obs_radius = kwargs.get('obs_radius', obs_radius_default)
+
+        waypoints_default = True
+        self.waypoints = kwargs.get('obs_radius', waypoints_default)
         
         fps_default = self.FPS
         self.fps = kwargs.get('fps', fps_default)
@@ -114,8 +117,9 @@ class ShipNavRocks(gym.Env):
         return [seed]
 
     def _adjust_times(self):
-        self.MAX_TIME_SHOULD_TAKE = self.world.dist_estimate / self.world.ship.Vmax + abs(self.world.get_ship_target_standard_bearing()) / self.world.ship.Rmax # Twice the time of agoing to target in a straight line, taking turning into account somewhat
+        self.MAX_TIME_SHOULD_TAKE = self.world.dist_estimate / self.world.ship.Vmax # + Calculate somehow how long it takes to turn to bearing 0 ? Even if NN could learn that by itself
         self.MAX_TIME_SHOULD_TAKE_STEPS = self.MAX_TIME_SHOULD_TAKE * self.fps
+        #print("I should take %f" % self.MAX_TIME_SHOULD_TAKE)
 
     def reset(self):
         self.world.reset()
@@ -219,10 +223,7 @@ class ShipNavRocks(gym.Env):
         return np.array(state, dtype=np.float32)
 
     def _dist_reward(self):
-        dist = self.world.get_ship_objective_dist()
-        reward = (self.prev_dist - dist) / self.original_dist * 100 # we're trying to reach target so being close should be rewarded
-        self.prev_dist = dist
-        return reward
+        return self.world.delta_dist / self.original_dist * 100 # we're trying to reach target so being close should be rewarded
 
     def _timestep_reward(self):
         reward = -100 / (self.MAX_STEPS) # Could be analogous to gas left, normalized to be -100 at the end. (ran out of gas)
@@ -234,14 +235,9 @@ class ShipNavRocks(gym.Env):
         ship = self.world.ship
         done = False
         reward = 0
-        if ship.is_hit(): # FIXME Will not know if hit is new or not !
-            if self.world.target in ship.hit_with:
-                self.is_success = True
-                #reward += 10 #high positive reward. hitting target is good
-                #print("Hit target, ending")
-            else:
+        if ship.is_hit() and not self.world.target in ship.hit_with: # FIXME Will not know if hit is new or not !
                 reward -= 50 #high negative reward. hitting anything else than target is bad
-            done = True
+                done = True
         return reward, done
 
     def _max_time_reward(self):
@@ -268,7 +264,9 @@ class ShipNavRocks(gym.Env):
         #print("Max time reward %.8f" % reward_max_time)
         reward += reward_max_time
         done = done or done_max_time
-        
+
+        self.is_success = self.world.is_success()
+        done = not done and self.is_success
         #print("Total reward %.8f" % reward)
         return reward, done
 
@@ -362,6 +360,9 @@ class ShipNavRocksLidar(ShipNavRocks):
 
         n_lidars_default = 15
         self.n_lidars = kwargs.get('n_lidars', n_lidars_default)
+
+        waypoints_default = True
+        self.waypoints = kwargs.get('obs_radius', waypoints_default)
         
         fps_default = self.FPS
         self.fps = kwargs.get('fps', fps_default)
@@ -373,7 +374,7 @@ class ShipNavRocksLidar(ShipNavRocks):
         self.display_traj_T = kwargs.get('display_traj_T', display_traj_T_default)
 
     def _build_world(self):
-        return RockOnlyWorldLidar(self.n_rocks, self.n_lidars, self.rock_scale)
+        return RockOnlyWorldLidar(self.n_rocks, self.n_lidars, self.rock_scale, waypoint_support=self.waypoints)
 
     def _get_obs_space(self):
         return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + self.n_lidars,), dtype=np.float32)
