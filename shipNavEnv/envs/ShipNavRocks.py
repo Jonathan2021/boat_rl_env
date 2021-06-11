@@ -114,7 +114,7 @@ class ShipNavRocks(gym.Env):
         return [seed]
 
     def _adjust_times(self):
-        self.MAX_TIME_SHOULD_TAKE = 2 * self.world.get_ship_target_dist() / self.world.ship.Vmax + abs(self.world.get_ship_target_standard_bearing()) / self.world.ship.Rmax # Twice the time of agoing to target in a straight line, taking turning into account somewhat
+        self.MAX_TIME_SHOULD_TAKE = self.world.dist_estimate / self.world.ship.Vmax + abs(self.world.get_ship_target_standard_bearing()) / self.world.ship.Rmax # Twice the time of agoing to target in a straight line, taking turning into account somewhat
         self.MAX_TIME_SHOULD_TAKE_STEPS = self.MAX_TIME_SHOULD_TAKE * self.fps
 
     def reset(self):
@@ -195,8 +195,8 @@ class ShipNavRocks(gym.Env):
         state.append(velocity_y / ship.VmaxY)
         state.append(ship.body.angularVelocity/ship.Rmax)
         state.append(ship.thruster_angle / ship.THRUSTER_MAX_ANGLE)
-        state.append(self.world.get_ship_target_standard_dist())
-        state.append(self.world.get_ship_target_standard_bearing())
+        state.append(self.world.get_ship_objective_standard_dist())
+        state.append(self.world.get_ship_objective_standard_bearing())
         return state        
 
     def _get_world_state(self):
@@ -219,7 +219,7 @@ class ShipNavRocks(gym.Env):
         return np.array(state, dtype=np.float32)
 
     def _dist_reward(self):
-        dist = self.world.get_ship_target_dist()
+        dist = self.world.get_ship_objective_dist()
         reward = (self.prev_dist - dist) / self.original_dist * 100 # we're trying to reach target so being close should be rewarded
         self.prev_dist = dist
         return reward
@@ -280,6 +280,10 @@ class ShipNavRocks(gym.Env):
         
         self.state = self._get_state()
 
+        #if self.stepnumber == 10:
+        #    for rock in self.world.rocks:
+        #        print(rock.body.position)
+
         #if self.stepnumber == 1:
         #    print(len(self.state))
         #print(ship.body.linearVelocity)
@@ -287,7 +291,7 @@ class ShipNavRocks(gym.Env):
         #print(ship.body.GetLocalVector(ship.body.linearVelocity))
         #print(np.sqrt(ship.body.linearVelocity[0]**2 + ship.body.linearVelocity[1]**2))
         #if not (self.stepnumber % self.FPS):
-        #    print(self.state)
+        #print(self.state)
         #print(self.world.get_ship_target_bearing())
 
         # Normalized ship states

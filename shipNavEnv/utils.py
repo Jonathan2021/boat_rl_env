@@ -6,6 +6,7 @@ Created on Fri Dec 18 15:26:47 2020
 @author: gfo
 """
 import numpy as np
+import math
 
 # COLORS
 clist = []
@@ -30,3 +31,13 @@ def draw_random_in_list(arr):
     obj = arr[index]
     del arr[index]
     return obj
+
+def int_round_iter(iterable):
+    return map(lambda x: int(round(x)), iterable)
+
+def calc_angle_two_points(p1, p2):
+    x1, y1 = p1
+    x2, y2 = p2
+    dx = x2 - x1
+    dy = y2 - y1
+    return math.atan2(dy, dx)

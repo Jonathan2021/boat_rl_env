@@ -147,6 +147,10 @@ class Ship(Body):
                 linearDamping=0,
                 angularDamping=0
                 )
+        self.MAX_LENGTH = np.sqrt(max(
+                self.SHIP_WIDTH ** 2 + self.SHIP_HEIGHT ** 2,
+                (self.SHIP_WIDTH / 2) ** 2 + (self.SHIP_HEIGHT * 1.1) ** 2))
+                
 
         self.body.color = getColor(idx=0)
         self.body.linearVelocity = (0.0,0.0)
@@ -219,8 +223,12 @@ class Ship(Body):
 
         trans = self.body.transform
         for f in self.body.fixtures:
-            path = [trans * v for v in f.shape.vertices]
-            viewer.draw_polygon(path, color=color)
+            if type(f.shape) is polygonShape:
+                path = [trans * v for v in f.shape.vertices]
+                viewer.draw_polygon(path, color=color)
+            elif type(f.shape) is circleShape:
+                t = rendering.Transform(translation=trans * f.shape.pos)
+                viewer.draw_circle(f.shape.radius, color=color).add_attr(t)
 
         thrust_x, thrust_y = self.body.GetLocalVector(self.body.position)
         thrust_y -= self.SHIP_HEIGHT/2
