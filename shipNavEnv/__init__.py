@@ -24,7 +24,7 @@ register(
 
 register(
     id='ShipNav-v2',
-    entry_point='shipNavEnv.envs:ShipNavMultiShips',
+    entry_point='shipNavEnv.envs:ShipNavMultiShipsRadius',
 )
 
 register(
@@ -35,4 +35,9 @@ register(
 register(
     id='ShipNav-v4',
     entry_point='shipNavEnv.envs:ShipNavRocksSteerAndThrustContinuous',
+)
+
+register(
+    id='ShipNav-v5',
+    entry_point='shipNavEnv.envs:ShipNavMultiShipsLidar',
 )

@@ -6,8 +6,8 @@ Created on Thu Dec 17 16:46:23 2020
 @author: gfo
 """
 
-from shipNavEnv.Worlds import ShipsOnlyWorld
-from shipNavEnv.envs import ShipNavRocks
+from shipNavEnv.Worlds import ShipsOnlyWorld, ShipsOnlyWorldLidar
+from shipNavEnv.envs import ShipNavRocks, ShipNavRocksLidar
 
 """
 
@@ -39,39 +39,23 @@ Discrete control inputs are:
 
 
 # gym env class
-class ShipNavMultiShips(ShipNavRocks):
+class ShipNavMultiShipsRadius(ShipNavRocks):
 
-    FPS = 30          # simulation framerate
-    MAX_TIME = 200    # max steps for a simulation
-    MAX_STEPS = MAX_TIME * FPS  # max steps for a simulation
-    SHIP_STATE_LENGTH = 6
-    WORLD_STATE_LENGTH = 2
-
+    possible_kwargs = ShipNavRocks.possible_kwargs.copy()
+    possible_kwargs.update({'n_ships': 0})
+    
     metadata = {
         'render.modes': ['human', 'rgb_array'],
-        'video.frames_per_second': FPS
+        'video.frames_per_second': possible_kwargs['fps']
     }
-
-    def _read_kwargs(self, **kwargs):
-        n_ships_default = 0
-        self.n_ships = kwargs.get('n_ships', n_ships_default)
-
-        n_ships_obs_default = self.n_ships
-        self.n_ships_obs = kwargs.get('n_ships_obs', n_ships_obs_default)
-        self.n_obstacles_obs = self.n_ships_obs
-
-        obs_radius_default = 200
-        self.obs_radius = kwargs.get('obs_radius', obs_radius_default)
-        
-        fps_default = self.FPS
-        self.fps = kwargs.get('fps', fps_default)
-
-        display_traj_default = False
-        self.display_traj = kwargs.get('display_traj', display_traj_default)
-
-        display_traj_T_default = 0.1
-        self.display_traj_T = kwargs.get('display_traj_T', display_traj_T_default)
 
 
     def _build_world(self):
         return ShipsOnlyWorld(self.n_ships, {'obs_radius': self.obs_radius})
+
+class ShipNavMultiShipsLidar(ShipNavRocksLidar):
+    possible_kwargs = ShipNavRocksLidar.possible_kwargs.copy()
+    possible_kwargs.update({'n_ships': 0})
+
+    def _build_world(self):
+        return ShipsOnlyWorldLidar(self.n_ships, self.n_lidars)

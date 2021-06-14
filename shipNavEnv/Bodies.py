@@ -122,7 +122,6 @@ class Ship(Body):
     VmaxY = Vmax
     VmaxX = Vmax / SCALE_K_Yv
 
-
     def __init__(self, world, init_angle, position, obs_radius, **kwargs):
         Body.__init__(self, world, init_angle, position, **kwargs)
         self.throttle = 1

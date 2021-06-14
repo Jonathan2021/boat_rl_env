@@ -23,15 +23,16 @@ class World:
         self.rocks = []
         self.ship = None
         self.viewer = None
-        self.path = []
-        self.populate()
         self.scale = scale
+        self.populate()
 
         self.waypoint_support = waypoint_support
-
-        self.grid = None
-        self.waypoints = []
-        self.do_all_grid_stuff()
+        
+        if self.waypoint_support:
+            self.path = []
+            self.grid = None
+            self.waypoints = []
+            self.do_all_grid_stuff()
         #print(self.ship.body.position)
         #print(self.target.body.position)
         #print(self.rocks[0].body.position)
@@ -83,7 +84,7 @@ class World:
         self.estimate_dist()
     
     def estimate_dist(self):
-        if self.path:
+        if self.waypoint_support and self.path:
             self.dist_estimate = get_path_dist(self.path)
         else:
             self.dist_estimate = 1.5 * self.get_ship_target_dist()
@@ -134,11 +135,14 @@ class World:
         self.ships = []
         self.rocks = []
         self.viewer = None
-        self.grid = None
-        self.waypoints = []
-        self.path = []
-
         self.populate()
+
+        if self.waypoint_support:
+            self.path = []
+            self.grid = None
+            self.waypoints = []
+            self.do_all_grid_stuff()
+
         self.do_all_grid_stuff()
 
     def destroy(self):
@@ -148,9 +152,12 @@ class World:
         self.target = None
         self.ships = []
         self.rocks = []
-        self.grid = None
-        self.waypoints = []
-        self.path = []
+
+        if self.waypoint_support:
+            self.path = []
+            self.grid = None
+            self.waypoints = []
+            self.do_all_grid_stuff()
 
     def get_random_pos(self, scale=1):
         left, bottom, right, top = self.get_bounds(scale)
@@ -188,7 +195,7 @@ class World:
         return self.rocks + self.ships
 
     def get_next_objective(self):
-        if self.waypoints:
+        if self.waypoint_support and self.waypoints:
             return self.waypoints[0]
         return self.target
 
@@ -202,7 +209,7 @@ class World:
         return self.ship.body.GetLocalVector(self._get_pos_dist(self.ship, x))
 
     def get_ship_dist(self, x, use_waypoints=False):
-        if not use_waypoints or not self.waypoints:
+        if not self.waypoint_support or not use_waypoints or not self.waypoints:
             dist = np.linalg.norm(self._get_local_ship_pos_dist(x))
         else:
             dist = get_path_dist([self.ship.body.position] + self.waypoints)
@@ -278,7 +285,8 @@ class World:
         
         self.ship.update()
         self.update_obstacle_data()
-        self.update_waypoints()
+        if self.waypoint_support:
+            self.update_waypoints()
         
         #print(self.get_ship_target_path())
     def is_success(self):
@@ -312,20 +320,22 @@ class World:
             water.set_color(*cyan)
             self.viewer.add_geom(water)
 
-            path = rendering.PolyLine(self.path, False)
-            path.set_linewidth(5)
-            path.set_color(0, 0, 255)
-            self.viewer.add_geom(path)
+            if self.waypoint_support:
+                path = rendering.PolyLine(self.path, False)
+                path.set_linewidth(5)
+                path.set_color(0, 0, 255)
+                self.viewer.add_geom(path)
 
         for body in self.get_bodies():
             body.render(self.viewer)
-            
-        for i, waypoint in enumerate(self.waypoints):
-            t = rendering.Transform(translation = waypoint)
-            if i == 0:
-                self.viewer.draw_circle(self.WAYPOINT_RADIUS, color=(0,255,0), filled=False, linewidth=3).add_attr(t)
-            else:
-                self.viewer.draw_circle(self.WAYPOINT_RADIUS, color=(0,0,255), filled=False, linewidth=3).add_attr(t)
+
+        if self.waypoint_support:
+            for i, waypoint in enumerate(self.waypoints):
+                t = rendering.Transform(translation = waypoint)
+                if i == 0:
+                    self.viewer.draw_circle(self.WAYPOINT_RADIUS, color=(0,255,0), filled=False, linewidth=3).add_attr(t)
+                else:
+                    self.viewer.draw_circle(self.WAYPOINT_RADIUS, color=(0,0,255), filled=False, linewidth=3).add_attr(t)
 
                     
         #FIXME Feels pretty hacky, should check on that later
@@ -375,18 +385,28 @@ class RockOnlyWorldLidar(RockOnlyWorld):
 
 
 class ShipsOnlyWorld(World):
-    def __init__(self, n_ships, ship_kwargs=None):
+    SCALE = 1.5
+    def __init__(self, n_ships, scale = SCALE, ship_kwargs=None, waypoint_support=False):
         self.n_ships = n_ships
-        super().__init__(ship_kwargs, waypoint_support=False)
+        super().__init__(ship_kwargs, scale, waypoint_support=waypoint_support)
 
     def populate(self):
         for i in range(self.n_ships):
-            pos = self.get_random_pos()
+            pos = self.get_random_pos(scale=self.scale)
             angle = self.get_random_angle()
             ship = ShipObstacle(self.world, angle, pos)
             self.ships.append(ship)
 
         super().populate()
+
+class ShipsOnlyWorldLidar(ShipsOnlyWorld):
+    SCALE = ShipsOnlyWorld.SCALE
+    def __init__(self, n_ships, n_lidars, scale = SCALE, ship_kwargs=None, waypoint_support=True):
+        self.n_lidars = n_lidars
+        super().__init__(n_ships, scale, ship_kwargs, waypoint_support)
+  
+    def _build_ship(self, angle, position=(0,0)):
+        return ShipLidar(self.world, angle, position, self.n_lidars, 150, **self.ship_kwargs if self.ship_kwargs else dict())
 
 class ShipsAndRocksMap(World):
     def __init__(self):

@@ -69,6 +69,11 @@ class ShipNavRocks(gym.Env):
         self.traj = []
         self.prev_dist = None
         self.obstacles = []
+
+        self.reward_hit = 0
+        self.time_rew = 0
+        self.dist_rew = 0
+        self.reward_max_time = 0
         
         # Observation are continuous in [-1, 1] 
         self.observation_space = self._get_obs_space()
@@ -84,40 +89,27 @@ class ShipNavRocks(gym.Env):
     def _get_obs_space(self):
         return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + 2 * self.n_obstacles_obs,), dtype=np.float32)
 
+    possible_kwargs = {
+            'n_rocks': 0,
+            'rock_scale': RockOnlyWorld.ROCK_SCALE_DEFAULT,
+            'n_obstacles_obs': 10,
+            'obs_radius': 400,
+            'waypoints': True,
+            'fps': FPS,
+            'display_traj': False,
+            'display_traj_T': 0.1
+            }
 
     def _read_kwargs(self, **kwargs):
-        n_rocks_default = 0
-        self.n_rocks = kwargs.get('n_rocks', n_rocks_default)
-
-        rock_scale_default = RockOnlyWorld.ROCK_SCALE_DEFAULT
-        self.rock_scale = kwargs.get('rock_scale', rock_scale_default)
-
-        n_rocks_obs_default = self.n_rocks
-        self.n_rocks_obs = kwargs.get('n_rocks_obs', n_rocks_obs_default)
-        self.n_obstacles_obs = self.n_rocks_obs
-
-        obs_radius_default = 400
-        self.obs_radius = kwargs.get('obs_radius', obs_radius_default)
-
-        waypoints_default = True
-        self.waypoints = kwargs.get('obs_radius', waypoints_default)
-        
-        fps_default = self.FPS
-        self.fps = kwargs.get('fps', fps_default)
-
-        display_traj_default = False
-        self.display_traj = kwargs.get('display_traj', display_traj_default)
-
-        display_traj_T_default = 0.1
-        self.display_traj_T = kwargs.get('display_traj_T', display_traj_T_default)
-
+        for key, default in self.possible_kwargs.items():
+            setattr(self, key, kwargs.get(key, default))
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
     def _adjust_times(self):
-        self.MAX_TIME_SHOULD_TAKE = self.world.dist_estimate / self.world.ship.Vmax # + Calculate somehow how long it takes to turn to bearing 0 ? Even if NN could learn that by itself
+        self.MAX_TIME_SHOULD_TAKE = 2 * self.world.dist_estimate / self.world.ship.Vmax # + Calculate somehow how long it takes to turn to bearing 0 ? Even if NN could learn that by itself
         self.MAX_TIME_SHOULD_TAKE_STEPS = self.MAX_TIME_SHOULD_TAKE * self.fps
         #print("I should take %f" % self.MAX_TIME_SHOULD_TAKE)
 
@@ -134,6 +126,11 @@ class ShipNavRocks(gym.Env):
         self.original_dist = self.world.get_ship_target_dist()
         self.prev_dist = self.original_dist
         self.is_success = False
+
+        self.reward_hit = 0
+        self.time_rew = 0
+        self.dist_rew = 0
+        self.reward_max_time = 0
 
         return self._get_state()
     
@@ -236,8 +233,8 @@ class ShipNavRocks(gym.Env):
         done = False
         reward = 0
         if ship.is_hit() and not self.world.target in ship.hit_with: # FIXME Will not know if hit is new or not !
-                reward -= 50 #high negative reward. hitting anything else than target is bad
-                done = True
+            reward -= 50 #high negative reward. hitting anything else than target is bad
+            done = True
         return reward, done
 
     def _max_time_reward(self):
@@ -253,20 +250,24 @@ class ShipNavRocks(gym.Env):
         reward = 0
         done = False
         reward += self._dist_reward()
+        self.dist_rew += reward
         #print("Dist reward %.8f" % reward)
         time_reward = self._timestep_reward()
+        self.time_rew += time_reward
         #print("Time reward %.8f" % time_reward)
         reward += time_reward
         reward_hit, done = self._hit_reward()
+        self.reward_hit += reward_hit
         #print("Hit reward %.8f" % reward_hit)
         reward += reward_hit
         reward_max_time, done_max_time = self._max_time_reward()
+        self.reward_max_time += reward_max_time
         #print("Max time reward %.8f" % reward_max_time)
         reward += reward_max_time
         done = done or done_max_time
 
         self.is_success = self.world.is_success()
-        done = not done and self.is_success
+        done = done or self.is_success
         #print("Total reward %.8f" % reward)
         return reward, done
 
@@ -351,27 +352,8 @@ class ShipNavRocksSteerAndThrustContinuous(ShipNavRocks):
 
 
 class ShipNavRocksLidar(ShipNavRocks):
-    def _read_kwargs(self, **kwargs):
-        n_rocks_default = 0
-        self.n_rocks = kwargs.get('n_rocks', n_rocks_default)
-
-        rock_scale_default = RockOnlyWorldLidar.ROCK_SCALE_DEFAULT
-        self.rock_scale = kwargs.get('rock_scale', rock_scale_default)
-
-        n_lidars_default = 15
-        self.n_lidars = kwargs.get('n_lidars', n_lidars_default)
-
-        waypoints_default = True
-        self.waypoints = kwargs.get('obs_radius', waypoints_default)
-        
-        fps_default = self.FPS
-        self.fps = kwargs.get('fps', fps_default)
-
-        display_traj_default = False
-        self.display_traj = kwargs.get('display_traj', display_traj_default)
-
-        display_traj_T_default = 0.1
-        self.display_traj_T = kwargs.get('display_traj_T', display_traj_T_default)
+    possible_kwargs = ShipNavRocks.possible_kwargs.copy()
+    possible_kwargs.update({'n_lidars': 15})
 
     def _build_world(self):
         return RockOnlyWorldLidar(self.n_rocks, self.n_lidars, self.rock_scale, waypoint_support=self.waypoints)
