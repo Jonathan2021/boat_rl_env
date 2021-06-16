@@ -44,7 +44,7 @@ Discrete control inputs are:
 class ShipNavMultiShipsRadius(ShipNavRocks):
 
     possible_kwargs = ShipNavRocks.possible_kwargs.copy()
-    possible_kwargs.update({'n_ships': 0, 'scale':ShipsOnlyWorld.SCALE, 'use_waypoints':False})
+    possible_kwargs.update({'n_ships': 0, 'scale':ShipsOnlyWorld.SCALE, 'waypoints':False})
     
     metadata = {
         'render.modes': ['human', 'rgb_array'],
@@ -68,17 +68,32 @@ class ShipNavMultiShipsRadius(ShipNavRocks):
         return self._get_ships_obstacles()
 
     def _get_obstacle_state(self):
-        return super()._get_obstacle_state() + [(self.obstacles[i].bearing_to_ship / np.pi if i < len(self.obstacles) else np.random.uniform(-1,1)) for i in range(self.n_obstacles_obs)]
+        ship = self.world.ship
+        state = ShipNavRocks._get_obstacle_state(self)
+        for i in range(self.n_obstacles_obs):
+            if i < len(self.obstacles) and self.obstacles[i].seen:
+                state.append(self.obstacles[i].bearing_to_ship / np.pi)
+                v_x, v_y = ship.body.GetLocalVector(self.obstacles[i].body.linearVelocity)
+                state.append(v_x / ship.Vmax) # FIXME won't be exactly between -1 and 1 if Vmax of other ships is diff
+                state.append(v_y / ship.Vmax)
+                state.append(self.obstacles[i].body.angularVelocity / ship.Rmax) # same problem here
+            else:
+                state.append(np.random.uniform(-1,1))
+                state.append(np.random.uniform(-1,1))
+                state.append(np.random.uniform(-1,1))
+                state.append(np.random.uniform(-1,1))
+        return state
         
 
 class ShipNavMultiShipsLidar(ShipNavMultiShipsRadius):
     possible_kwargs = ShipNavRocksLidar.possible_kwargs.copy()
-    possible_kwargs.update({'n_ships': 0, 'scale':ShipsOnlyWorld.SCALE, 'use_waypoints':False})
+    possible_kwargs.update({'n_ships': 0, 'scale':ShipsOnlyWorld.SCALE, 'waypoints':False})
 
     def _build_world(self):
-        return ShipsOnlyWorldLidar(self.n_ships, self.n_lidars, self.scale, {'obs_radius': self.obs_radius}, waypoint_support=False)
+        return ShipsOnlyWorldLidar(self.n_ships, self.n_lidars, self.scale, {'obs_radius': self.obs_radius}, waypoint_support=self.waypoints)
 
     def _get_state(self):
+        #print(self._get_obstacle_state())
         return np.concatenate((ShipNavRocksLidar._get_state(self), self._get_obstacle_state()))
 
     def _get_obs_space(self):
@@ -90,5 +105,3 @@ class ShipNavMultiShipsLidarRadar(ShipNavMultiShipsLidar):
 
     def _get_obs_space(self):
         return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + self.n_lidars + 3 * self.n_obstacles_obs,), dtype=np.float32)
-
-

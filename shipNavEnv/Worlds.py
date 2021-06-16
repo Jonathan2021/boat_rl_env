@@ -91,8 +91,12 @@ class World:
 
     def _build_ship(self, angle, position=(0,0)):
         return Ship(self.world, angle, position, **self.ship_kwargs if self.ship_kwargs else dict())
+
+    def _add_obstacles(self):
+        pass
     
     def populate(self):
+        self._add_obstacles()
         angle = self.get_random_angle()
         self.ship = self._build_ship(angle)
 
@@ -124,7 +128,7 @@ class World:
         self.ship.body.massData = mass # Recalculates mass when destroying a fixture but since we calculated our own, put it back (or body won't move)
 
         self.target = Target(self.world, (self.WIDTH, self.HEIGHT))
-        self.get_random_free_space(self.target)
+        self.get_random_free_space(self.target, ignore_type=[BodyType.SHIP])
 
     def reset(self):
         for body in self.get_bodies():
@@ -173,17 +177,17 @@ class World:
 
     # FIXME According to Box2D doc Caution: Do not create a body at the origin and then move it. If you create several bodies at the origin, then performance will suffer.
     # Fix idea -> use functools partial to create body with position and return it (or destroy it)
-    def get_random_free_space(self, body : Body, trial = 0, limit = 200):
+    def get_random_free_space(self, body : Body, trial = 0, limit = 200, ignore_type=[]):
         if trial == limit:
             return False # FIXME (maybe take something outside world border
         body_ = body.body
-        query = PlaceOccupied(ignore=[body])
+        query = PlaceOccupied(ignore=[body], ignore_type=ignore_type)
         position = self.get_random_pos()
         body_.position = position
         for fixture in body_.fixtures:
             aabb = fixture.GetAABB(0)
             self.world.QueryAABB(query, aabb)
-            if query.fixture:
+            if query.fixture and query.fixture.body.userData != self.ship: #FIXME A bit ugly
                 return self.get_random_free_space(body, trial +1, limit)
         return True        
 
@@ -252,14 +256,15 @@ class World:
     def get_ship_objective_standard_bearing(self):
         return self.get_ship_standard_bearing(self.get_next_objective())
 
-    def update_obstacle_data(self):
-        for obstacle in self.get_obstacles():
+    def update_obstacle_data(self, rocks=True, ships=True):
+        for obstacle in self.get_obstacles(rocks, ships):
                 distance = self.get_ship_dist(obstacle)
                 bearing = self.get_ship_bearing(obstacle)
                 obstacle.distance_to_ship = distance
                 obstacle.bearing_from_ship = bearing
                 if obstacle.type == BodyType.SHIP:
-                    obstacle.bearing_to_ship = np.arctan2(*obstacle.body.GetLocalVector(self._get_pos_dist(obstacle, self.ship)))
+                    obs_angle = obstacle.body.angle + math.pi/2 # the +math.pi/2 is to use y axis of ship instead of x for readability
+                    obstacle.bearing_to_ship = np.arctan2(*self.ship.body.GetLocalVector((math.cos(obs_angle), math.sin(obs_angle))))
                 obstacle.seen = self.ship.can_see(obstacle)
                 if not obstacle.seen:
                     obstacle.unsee()
@@ -358,28 +363,32 @@ class World:
         self.viewer.set_bounds(width_min,width_max,height_min,height_max)
 
         return self.viewer.render(return_rgb_array=mode == 'rgb_array')
-
+        
 
 class RockOnlyWorld(World):
     ROCK_SCALE_DEFAULT = 2
-    def __init__(self, n_rocks, rock_scale = ROCK_SCALE_DEFAULT, ship_kwargs=None, waypoint_support=True):
+
+    def init_specific(self, rock_scale, n_rocks):
         self.n_rocks = n_rocks
         self.rock_scale = rock_scale
-        self.scale = self.rock_scale
+
+    def __init__(self, n_rocks, rock_scale = ROCK_SCALE_DEFAULT, ship_kwargs=None, waypoint_support=True):
+        RockOnlyWorld.init_specific(self, rock_scale, n_rocks)
         super().__init__(ship_kwargs, self.rock_scale, waypoint_support)
 
-    def populate(self):
+    def _add_obstacles(self):
         for i in range(self.n_rocks):
             pos = self.get_random_pos(scale = self.rock_scale)
             rock = Rock(self.world, pos)
             #print(rock.body.fixtures[0].GetAABB(0))
             self.rocks.append(rock)
 
-        World.populate(self)
-
 class RockOnlyWorldLidar(RockOnlyWorld):
-    def __init__(self, n_rocks, n_lidars, rock_scale = RockOnlyWorld.ROCK_SCALE_DEFAULT, ship_kwargs=None, waypoint_support=True):
+    def init_specific(self, n_lidars,):
         self.n_lidars = n_lidars
+
+    def __init__(self, n_rocks, n_lidars, rock_scale = RockOnlyWorld.ROCK_SCALE_DEFAULT, ship_kwargs=None, waypoint_support=True):
+        RockOnlyWorldLidar.init_specific(self, n_lidars)
         RockOnlyWorld.__init__(self, n_rocks, rock_scale, ship_kwargs, waypoint_support)
 
     def _build_ship(self, angle, position=(0,0)):
@@ -388,31 +397,49 @@ class RockOnlyWorldLidar(RockOnlyWorld):
 
 class ShipsOnlyWorld(World):
     SCALE = 1.5
-    def __init__(self, n_ships, scale = SCALE, ship_kwargs=None, waypoint_support=False):
+
+    def init_specific(self, n_ships, ship_scale):
         self.n_ships = n_ships
+        self.ship_scale = ship_scale
+
+    def __init__(self, n_ships, scale = SCALE, ship_kwargs=None, waypoint_support=False):
+        ShipsOnlyWorld.init_specific(self, n_ships, scale)
         super().__init__(ship_kwargs, scale, waypoint_support=waypoint_support)
 
-    def populate(self):
+    def _add_obstacles(self):
         for i in range(self.n_ships):
-            pos = self.get_random_pos(scale=self.scale)
+            pos = self.get_random_pos(scale=self.ship_scale)
             angle = self.get_random_angle()
             ship = ShipObstacle(self.world, angle, pos)
             self.ships.append(ship)
 
-        super().populate()
-
 class ShipsOnlyWorldLidar(ShipsOnlyWorld):
     SCALE = ShipsOnlyWorld.SCALE
+
     def __init__(self, n_ships, n_lidars, scale = SCALE, ship_kwargs=None, waypoint_support=False):
-        self.n_lidars = n_lidars
+        RockOnlyWorldLidar.init_specific(self, n_lidars)
         super().__init__(n_ships, scale, ship_kwargs, waypoint_support)
   
     def _build_ship(self, angle, position=(0,0)):
         return ShipLidar(self.world, angle, position, self.n_lidars, 150, **self.ship_kwargs if self.ship_kwargs else dict())
 
-class ShipsAndRocksMap(World):
-    def __init__(self):
-        super().__init__()
+class ShipsAndRocksWorld(ShipsOnlyWorldLidar):
+    SCALE_SHIP = ShipsOnlyWorldLidar.SCALE
+    SCALE_ROCK = RockOnlyWorld.ROCK_SCALE_DEFAULT
+
+    def __init__(self, n_ships, n_rocks, n_lidars, ship_scale = SCALE_SHIP, rock_scale = SCALE_ROCK, ship_kwargs=None, waypoint_support=True):
+        RockOnlyWorld.init_specific(self, rock_scale, n_rocks)
+        RockOnlyWorldLidar.init_specific(self, n_lidars)
+        ShipsOnlyWorld.init_specific(self, n_ships, ship_scale)
+        World.__init__(self, ship_kwargs, scale=max(self.rock_scale, self.ship_scale), waypoint_support=waypoint_support)
+        
+
+    def populate(self):
+        ShipsOnlyWorld._add_obstacles(self)
+        RockOnlyWorld._add_obstacles(self)
+        World.populate(self)
+        
+
 
 class ImpossibleMap(World):
     def __init__(self):
