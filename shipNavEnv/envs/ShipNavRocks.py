@@ -11,6 +11,7 @@ import gym
 from gym import spaces
 from gym.utils import seeding
 from shipNavEnv.Worlds import RockOnlyWorld, RockOnlyWorldLidar
+from shipNavEnv.Bodies import BodyType
 
 """
 The objective of this environment is control a ship to reach a target
@@ -84,16 +85,21 @@ class ShipNavRocks(gym.Env):
         self.reset()
 
     def _build_world(self):
-        return RockOnlyWorld(self.n_rocks, self.rock_scale, {'obs_radius': self.obs_radius}, self.waypoints)
+        return RockOnlyWorld(self.n_rocks, self.scale, {'obs_radius': self.obs_radius}, self.waypoints)
 
     def _get_obs_space(self):
         return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + 2 * self.n_obstacles_obs,), dtype=np.float32)
+    
+    def _get_ship_kwargs(self):
+        return {
+                'obs_radius': self.obs_radius,
+                }
 
     possible_kwargs = {
             'n_rocks': 0,
-            'rock_scale': RockOnlyWorld.ROCK_SCALE_DEFAULT,
+            'scale': RockOnlyWorld.ROCK_SCALE_DEFAULT,
             'n_obstacles_obs': 10,
-            'obs_radius': 400,
+            'obs_radius': 200,
             'waypoints': True,
             'fps': FPS,
             'display_traj': False,
@@ -202,13 +208,12 @@ class ShipNavRocks(gym.Env):
 
     def _get_world_state(self):
         return [2 * self.stepnumber / self.MAX_STEPS - 1, 2*self.MAX_TIME_SHOULD_TAKE / self.MAX_TIME - 1]
-
-    def _get_state(self):
+    
+    def _get_obstacle_state(self):
         ship = self.world.ship
-        state = []
-        state += self._get_ship_state()
-        state += self._get_world_state()
         obstacles = self._get_obstacles()
+
+        state = []
         
         for i in range(self.n_obstacles_obs):
             if i < len(obstacles) and obstacles[i].seen:
@@ -217,6 +222,13 @@ class ShipNavRocks(gym.Env):
             else:
                 state.append(1)
                 state.append(np.random.uniform(-1, 1))
+        return state
+
+    def _get_state(self):
+        state = []
+        state += self._get_ship_state()
+        state += self._get_world_state()
+        state += self._get_obstacle_state()
         return np.array(state, dtype=np.float32)
 
     def _dist_reward(self):
@@ -353,10 +365,10 @@ class ShipNavRocksSteerAndThrustContinuous(ShipNavRocks):
 
 class ShipNavRocksLidar(ShipNavRocks):
     possible_kwargs = ShipNavRocks.possible_kwargs.copy()
-    possible_kwargs.update({'n_lidars': 15})
+    possible_kwargs.update({'n_lidars': 15, 'obs_radius': 0})
 
     def _build_world(self):
-        return RockOnlyWorldLidar(self.n_rocks, self.n_lidars, self.rock_scale, waypoint_support=self.waypoints)
+        return RockOnlyWorldLidar(self.n_rocks, self.n_lidars, self.scale, self._get_ship_kwargs(), waypoint_support=self.waypoints)
 
     def _get_obs_space(self):
         return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + self.n_lidars,), dtype=np.float32)

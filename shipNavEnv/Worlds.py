@@ -191,8 +191,8 @@ class World:
     def get_bodies(self):
         return ([self.ship] if self.ship else []) + ([self.target] if self.target else []) + self.get_obstacles()
 
-    def get_obstacles(self):
-        return self.rocks + self.ships
+    def get_obstacles(self, rocks=True, ships=True):
+        return (self.rocks if rocks else []) + (self.ships if ships else [])
 
     def get_next_objective(self):
         if self.waypoint_support and self.waypoints:
@@ -258,6 +258,8 @@ class World:
                 bearing = self.get_ship_bearing(obstacle)
                 obstacle.distance_to_ship = distance
                 obstacle.bearing_from_ship = bearing
+                if obstacle.type == BodyType.SHIP:
+                    obstacle.bearing_to_ship = np.arctan2(*obstacle.body.GetLocalVector(self._get_pos_dist(obstacle, self.ship)))
                 obstacle.seen = self.ship.can_see(obstacle)
                 if not obstacle.seen:
                     obstacle.unsee()
@@ -401,7 +403,7 @@ class ShipsOnlyWorld(World):
 
 class ShipsOnlyWorldLidar(ShipsOnlyWorld):
     SCALE = ShipsOnlyWorld.SCALE
-    def __init__(self, n_ships, n_lidars, scale = SCALE, ship_kwargs=None, waypoint_support=True):
+    def __init__(self, n_ships, n_lidars, scale = SCALE, ship_kwargs=None, waypoint_support=False):
         self.n_lidars = n_lidars
         super().__init__(n_ships, scale, ship_kwargs, waypoint_support)
   

@@ -41,3 +41,8 @@ register(
     id='ShipNav-v5',
     entry_point='shipNavEnv.envs:ShipNavMultiShipsLidar',
 )
+
+register(
+    id='ShipNav-v6',
+    entry_point='shipNavEnv.envs:ShipNavMultiShipsLidarRadar',
+)

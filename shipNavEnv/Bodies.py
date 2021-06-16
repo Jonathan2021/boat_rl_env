@@ -263,7 +263,7 @@ class Ship(Body):
 
 class ShipLidar(Ship):
     def __init__(self, world, init_angle, position, nb_lidars, lidar_range, **kwargs):
-        Ship.__init__(self, world, init_angle, position, 0, **kwargs)
+        Ship.__init__(self, world, init_angle, position, **kwargs)
         self.nb_lidars = nb_lidars
         self.lidar_range = lidar_range
         self.lidars = [LidarCallback(dont_report = [BodyType.TARGET]) for _ in range(self.nb_lidars)]
@@ -343,6 +343,10 @@ class ShipObstacle(Ship, Obstacle):
     def step(self, fps):
         self.take_random_actions(fps)
         Ship.step(self, fps)
+
+    def unsee(self):
+        Obstacle.unsee(self)
+        self.bearing_to_ship = Obstacle.DEFAULT_BEARING 
 
     def get_color(self):
         return self.body.color1 if self.is_hit() else self.body.color2 if self.seen else self.body.color3
