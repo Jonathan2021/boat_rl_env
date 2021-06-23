@@ -15,6 +15,14 @@ class World:
     DIAGONAL = np.sqrt(HEIGHT ** 2 + WIDTH ** 2)
     WAYPOINT_RADIUS = Ship.SHIP_HEIGHT
 
+    #RENDER
+    MAIN_WIN_HEIGHT= 720
+    MAIN_WIN_WIDTH = 1280
+    SHIP_VIEW_HEIGHT = 300
+    SHIP_VIEW_WIDTH = 300
+    WIN_SHIFT_X = -200
+    WIN_SHIFT_Y = 150
+
     def __init__(self, ship_kwargs=None, scale = 1, waypoint_support=True):
         self.ship_kwargs = ship_kwargs
         self.listener = ContactDetector()
@@ -316,31 +324,40 @@ class World:
 
         if first_time:
 
-            self.ship_viewer = rendering.Viewer(radius * 2, radius * 2)
+            self.ship_viewer = rendering.Viewer(self.SHIP_VIEW_WIDTH, self.SHIP_VIEW_HEIGHT)
             win_x, win_y = self.ship_viewer.window.get_location()
-            print(win_x, win_y)
-            self.ship_viewer.window.set_location(win_x + 600, win_y - 350)
+            self.ship_viewer.window.set_location(
+                    win_x + (self.MAIN_WIN_WIDTH + self.SHIP_VIEW_WIDTH)//2 + self.WIN_SHIFT_X,
+                    win_y - (self.MAIN_WIN_HEIGHT + self.SHIP_VIEW_HEIGHT)//2 + self.WIN_SHIFT_Y)
             
         for obstacle in self.get_obstacles():
             obstacle.render(self.ship_viewer, first_time=first_time, ship_view=True)
-        x, y = self.ship.body.position
-        left = x - radius
-        right = x + radius
-        top = y + radius
-        bottom = y - radius
+            trans = obstacle.ship_view_trans
+            trans.set_translation(*self.ship.body.GetLocalPoint(obstacle.body.position))
+            angle = obstacle.body.angle
+            local_angle = np.arctan2(*self.ship.body.GetLocalVector((math.cos(angle), math.sin(angle))))
+            trans.set_rotation(local_angle)
 
-        #world_left, world_bottom = self.ship.body.GetWorldPoint((left, bottom))
-        #world_right, world_top = self.ship.body.GetWorldPoint((right, top))
+        for geom in self.ship_viewer.geoms + self.ship_viewer.onetime_geoms: 
+            if hasattr(geom, 'userData'):
+                geom.set_color(*geom.userData.get_color_ship_view())
+            
+
+        x, y = self.ship.body.position
+        left = - radius
+        right = radius
+        top = radius
+        bottom = -radius
+
 
         self.ship_viewer.set_bounds(left, right, bottom, top)
-        #self.ship_viewer.transform.set_rotation(np.pi)
         
         return self.ship_viewer.render(return_rgb_array=mode == 'rgb_array')
 
 
 
     def render(self, mode='human', close=False):
-        DEBORDER = 10
+        DEBORDER = 3
         cyan = rgb(126, 150, 233)
         first_time = not self.viewer
 
@@ -355,13 +372,15 @@ class World:
 
         if first_time:
 
-            self.viewer = rendering.Viewer(self.WIDTH, self.HEIGHT)
+            self.viewer = rendering.Viewer(self.MAIN_WIN_WIDTH, self.MAIN_WIN_HEIGHT)
+            win_x, win_y = self.viewer.window.get_location()
+            self.viewer.window.set_location(win_x + self.WIN_SHIFT_X, win_y + self.WIN_SHIFT_Y)
             
             water = rendering.FilledPolygon((
-                (-DEBORDER * self.WIDTH, -DEBORDER * self.HEIGHT),
-                (-DEBORDER * self.WIDTH, DEBORDER*self.HEIGHT),
-                (DEBORDER * self.WIDTH, DEBORDER*self.HEIGHT),
-                (DEBORDER*self.WIDTH, -DEBORDER*self.WIDTH)))
+                (-DEBORDER * self.MAIN_WIN_WIDTH, -DEBORDER * self.MAIN_WIN_HEIGHT),
+                (-DEBORDER * self.MAIN_WIN_WIDTH, DEBORDER*self.MAIN_WIN_HEIGHT),
+                (DEBORDER * self.MAIN_WIN_WIDTH, DEBORDER*self.MAIN_WIN_HEIGHT),
+                (DEBORDER*self.MAIN_WIN_WIDTH, -DEBORDER*self.MAIN_WIN_WIDTH)))
 
             water.set_color(*cyan)
             self.viewer.add_geom(water)
@@ -375,6 +394,10 @@ class World:
         for body in self.get_bodies():
             body.render(self.viewer, first_time)
 
+        for geom in self.viewer.geoms + self.viewer.onetime_geoms: 
+            if hasattr(geom, 'userData'):
+                geom.set_color(*geom.userData.get_color())
+        
         if self.waypoint_support:
             for i, waypoint in enumerate(self.waypoints):
                 t = rendering.Transform(translation = waypoint)
@@ -382,6 +405,7 @@ class World:
                     self.viewer.draw_circle(self.WAYPOINT_RADIUS, color=(0,255,0), filled=False, linewidth=3).add_attr(t)
                 else:
                     self.viewer.draw_circle(self.WAYPOINT_RADIUS, color=(0,0,255), filled=False, linewidth=3).add_attr(t)
+
 
                     
         #FIXME Feels pretty hacky, should check on that later
