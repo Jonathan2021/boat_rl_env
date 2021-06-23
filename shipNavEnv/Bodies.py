@@ -2,7 +2,7 @@ from Box2D.b2 import fixtureDef, polygonShape, circleShape
 import numpy as np
 import math
 import abc
-from shipNavEnv.utils import getColor, rgb
+from shipNavEnv.utils import getColor, rgb, DynamicColor
 from enum import Enum
 from gym.envs.classic_control import rendering
 from shipNavEnv.Callbacks import LidarCallback
@@ -19,7 +19,6 @@ class Body:
         self.body = None
         self.hit_with = []
         self.type = BodyType.BODY
-        self.rendered_once = False
         self._build(*args, **kwargs)
         self.args = args
         self.kwargs = kwargs
@@ -30,7 +29,6 @@ class Body:
 
     def clean(self):
         self.hit_with = []
-        self.rendered_once = False
 
     def reset(self):
         self.destroy()
@@ -50,8 +48,11 @@ class Body:
         self.world.DestroyBody(self.body)
         self.clean()
 
+    def add_geoms(self, viewer):
+        pass
+
     @abc.abstractmethod
-    def render(self, viewer):
+    def render(self, viewer, first_time=True, ship_view=False):
         pass
 
     def step(self, fps):
@@ -59,6 +60,14 @@ class Body:
 
     def get_color(self):
         return self.body.color
+
+    def get_color_ship_view(self):
+        v_x, v_y = self.world.userData.ship.body.GetLocalVector(self.body.linearVelocity)
+        col= (np.clip((v_x / Ship.Vmax + 1) / 2, 0, 1),
+            np.clip((v_y / Ship.Vmax + 1) / 2, 0, 1),
+            np.clip((self.body.angularVelocity / Ship.Rmax + 1) / 2, 0, 1))
+        #print(col)
+        return col
 
 
 class Obstacle(Body):
@@ -80,18 +89,37 @@ class Obstacle(Body):
         self.seen = False
 
     def get_color(self):
-        return self.body.color1 if self.is_hit() else self.body.color2 if self.seen else self.body.color3
+        return self.body.color2 if self.seen else self.body.color1 if self.is_hit() else self.body.color3
+
 
 class RoundObstacle(Obstacle):
     def __init__(self, world, position, **kwargs):
         super().__init__(world, position, **kwargs)
 
-    def render(self, viewer):
+    def render(self, viewer, first_time=True, ship_view=False):
         trans = self.body.transform
-        for f in self.body.fixtures:
-            t = rendering.Transform(translation=trans * f.shape.pos)
-            viewer.draw_circle(self.radius, color = self.get_color()).add_attr(t)
-            viewer.draw_circle(f.shape.radius, color= (self.body.color2 if self.is_hit() else (self.body.color3 if self.seen else self.body.color2)), filled=False, linewidth=2).add_attr(t)
+        if first_time:
+            for f in self.body.fixtures:
+                t = rendering.Transform(translation=trans * f.shape.pos)
+                if ship_view:
+                    #trans.position = self.world.userData.ship.body.GetLocalPoint(f.body.position)
+                    #t = rendering.Transform(translation=trans * f.shape.pos)
+                    circle = rendering.make_circle(self.radius)
+                    circle.add_attr(t)
+                    circle.set_color(*self.get_color_ship_view())
+                    self.circle_geom = circle
+                    viewer.add_geom(circle)
+                else:
+                    circle = rendering.make_circle(self.radius)
+                    circle.add_attr(t)
+                    circle.set_color(*self.get_color())
+                    viewer.add_geom(circle)
+                    countour = rendering.make_circle(f.shape.radius, filled=False)
+                    countour.add_attr(t)
+                    countour.set_color(*self.get_color())
+                    viewer.add_geom(countour)
+        else:
+            self.circle_geom.set_color(*self.get_color_ship_view())
 
 
 class Ship(Body):
@@ -128,6 +156,11 @@ class Ship(Body):
         self.thruster_angle = 0
         self.type = BodyType.SHIP
         self.obs_radius = obs_radius
+    
+        #Rendering transform
+        self.shiptrans = rendering.Transform()
+        self.thrustertrans = rendering.Transform()
+
 
     def _build(self, init_angle, position, **kwargs):
         self.body = self.world.CreateDynamicBody(
@@ -184,59 +217,72 @@ class Ship(Body):
         self.throttle = 1
         self.thruster_angle = 0
 
-    def render(self, viewer):
+    def add_geoms(self, viewer):
         color = self.get_color()
-        if not self.rendered_once:
-            self.shiptrans = rendering.Transform()
-            self.thrustertrans = rendering.Transform()
-            self.COGtrans = rendering.Transform()
-            
-            thruster = rendering.FilledPolygon((
-                (-self.THRUSTER_WIDTH / 2, 0),
-                (self.THRUSTER_WIDTH / 2, 0),
-                (self.THRUSTER_WIDTH / 2, -self.THRUSTER_HEIGHT),
-                (-self.THRUSTER_WIDTH / 2, -self.THRUSTER_HEIGHT)))
-            
-            thruster.add_attr(self.thrustertrans) # add thruster angle, assigned later
-            thruster.add_attr(self.shiptrans) # add ship angle and ship position, assigned later
-            thruster.set_color(*color)
-            
-            viewer.add_geom(thruster)
-            
-            COG = rendering.FilledPolygon((
-                (-Ship.THRUSTER_WIDTH / 0.2, 0),
-                (0, -Ship.THRUSTER_WIDTH/0.2),
-                (Ship.THRUSTER_WIDTH / 0.2, 0),
-                (0, Ship.THRUSTER_WIDTH/0.2)))
-            COG.add_attr(self.COGtrans) # add COG position
-            COG.add_attr(self.shiptrans) # add ship angle and ship position
+        thruster = rendering.FilledPolygon((
+            (-self.THRUSTER_WIDTH / 2, 0),
+            (self.THRUSTER_WIDTH / 2, 0),
+            (self.THRUSTER_WIDTH / 2, -self.THRUSTER_HEIGHT),
+            (-self.THRUSTER_WIDTH / 2, -self.THRUSTER_HEIGHT)))
+    
+        thruster.add_attr(self.thrustertrans) # add thruster angle, assigned later
+        thruster.add_attr(self.shiptrans) # add ship angle and ship position, assigned later
+        thruster.set_color(*color)
+    
+        viewer.add_geom(thruster)
+    
+        COG = rendering.FilledPolygon((
+            (-Ship.THRUSTER_WIDTH / 0.2, 0),
+            (0, -Ship.THRUSTER_WIDTH/0.2),
+            (Ship.THRUSTER_WIDTH / 0.2, 0),
+            (0, Ship.THRUSTER_WIDTH/0.2)))
+        COG.add_attr(self.shiptrans) # add ship angle and ship position
+        
+        COG.set_color(0, 0, 0)
 
-            COG.set_color(0.0, 0.0, 0.0)
-            viewer.add_geom(COG)
-            if self.obs_radius:
-                horizon = rendering.make_circle(radius=self.obs_radius, res=60, filled=False)
-                horizon.set_color(*color)
-                horizon.add_attr(self.shiptrans) # add ship angle and ship position
+        viewer.add_geom(COG)
 
-                viewer.add_geom(horizon)
+    
+        if self.obs_radius:
+            horizon = rendering.make_circle(radius=self.obs_radius, res=60, filled=False)
+            horizon.set_color(*color)
+            horizon.add_attr(self.shiptrans) # add ship angle and ship position
 
-        trans = self.body.transform
+            viewer.add_geom(horizon)
+
+            #trans = self.body.transform
         for f in self.body.fixtures:
             if type(f.shape) is polygonShape:
-                path = [trans * v for v in f.shape.vertices]
-                viewer.draw_polygon(path, color=color)
-            elif type(f.shape) is circleShape:
-                t = rendering.Transform(translation=trans * f.shape.pos)
-                viewer.draw_circle(f.shape.radius, color=color).add_attr(t)
+                pol = rendering.FilledPolygon(f.shape.vertices)
+                pol.add_attr(self.shiptrans)
+                pol.set_color(*color) 
+                viewer.add_geom(pol)
 
-        thrust_x, thrust_y = self.body.GetLocalVector(self.body.position)
-        thrust_y -= self.SHIP_HEIGHT/2
-        self.shiptrans.set_translation(*self.body.GetWorldVector((thrust_x, thrust_y)))
-        self.shiptrans.set_rotation(self.body.angle)
+
+
+    def render(self, viewer, first_time=True, ship_view=False):
+        if first_time and not ship_view:
+            self.add_geoms(viewer)
+        elif first_time and ship_view:
+            self.pol_geoms = []
+            for f in self.body.fixtures:
+                if type(f.shape) is polygonShape:
+                    pol = rendering.FilledPolygon(f.shape.vertices)
+                    pol.add_attr(self.shiptrans)
+                    pol.set_color(*self.get_color_ship_view()) 
+                    self.pol_geoms.append(pol)
+                    viewer.add_geom(pol)
+        elif ship_view:
+            for pol in self.pol_geoms:
+                pol.set_color(*self.get_color_ship_view())
         self.thrustertrans.set_rotation(self.thruster_angle)
-        self.COGtrans.set_translation(*self.body.localCenter)
+        self.thrustertrans.set_translation(0, -self.SHIP_HEIGHT / 2)
+        self.shiptrans.set_translation(*self.body.position)
+        self.shiptrans.set_rotation(self.body.angle)
+
+
+
         
-        self.rendered_once = True
     
     def update(self):
         pass
@@ -313,8 +359,8 @@ class ShipLidar(Ship):
     def update(self):
         self._update_lidars()
 
-    def render(self, viewer):
-        Ship.render(self, viewer)
+    def render(self, viewer, first_time=True, ship_view=False):
+        Ship.render(self, viewer, first_time, ship_view)
         for lidar in self.lidars:
             viewer.draw_polyline( [lidar.p1, lidar.p2], color=rgb(255, 0, 0), linewidth=1)
 
@@ -331,8 +377,8 @@ class ShipObstacle(Ship, Obstacle):
         self.body.color3 = rgb(255, 255, 255) # seen
         self.doSleep = True
 
-    def render(self, viewer):
-        Ship.render(self, viewer)
+    def render(self, viewer, first_time=True, ship_view=False):
+        Ship.render(self, viewer, first_time, ship_view)
 
     def take_random_actions(self, fps):
         steer = np.random.uniform(-1, 1)
@@ -349,7 +395,7 @@ class ShipObstacle(Ship, Obstacle):
         self.bearing_to_ship = Obstacle.DEFAULT_BEARING 
 
     def get_color(self):
-        return self.body.color1 if self.is_hit() else self.body.color2 if self.seen else self.body.color3
+        return self.body.color2 if self.seen else self.body.color1 if self.is_hit() else self.body.color3
     
 class Rock(RoundObstacle):
     RADIUS = 20
@@ -400,7 +446,7 @@ class Target(RoundObstacle):
             restitution=0.1, isSensor=True))
         self.body.userData = self
     
-    def render(self, viewer):
+    def render(self, viewer, first_time=True, ship_view=False):
         trans = self.body.transform
         for f in self.body.fixtures:
             t = rendering.Transform(translation=trans * f.shape.pos)

@@ -327,7 +327,12 @@ class ShipNavRocks(gym.Env):
 
     def render(self, mode='human', close=False):
         #print([d.userData for d in self.drawlist])
-        return self.world.render(mode, close)
+        if mode =='human':
+            all_close = self.world.render(mode, close)
+            all_close = self.world.render_ship_view(mode, close) and all_close
+            return all_close
+        else:
+            return self.world.render_ship_view(mode, close)
 
 class ShipNavRocksContinuousSteer(ShipNavRocks):
     def __init__(self,**kwargs):

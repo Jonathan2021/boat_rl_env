@@ -7,6 +7,8 @@ Created on Fri Dec 18 15:26:47 2020
 """
 import numpy as np
 import math
+from gym.envs.classic_control.rendering import Color
+from pyglet.gl import glColor4f
 
 # COLORS
 clist = []
@@ -49,3 +51,16 @@ def get_path_dist(path):
         x2, y2 = path[i + 1]
         dist += np.linalg.norm((x2 - x1, y2 - y1))
     return dist
+
+class DynamicColor(Color):
+    def __init__(self, fn):
+        self.fn = fn
+
+    def enable(self):
+        pass
+
+    def disable(self): #FIXME Kinda hacky but render call enable in reverse and disable in correct order. Since the color is the first attr, using enable will override our dynamic color
+        #print("In dynamic")
+        #print(self.fn)
+        #print(self.fn())
+        glColor4f(*self.fn(), 1)

@@ -6,6 +6,7 @@ from shipNavEnv.utils import rgb, calc_angle_two_points, get_path_dist
 from shipNavEnv.grid_logic.Grid import GridAdapter
 import numpy as np
 import math
+from gym.envs.classic_control import rendering
 
 class World:
     GRAVITY = (0,0)
@@ -17,12 +18,14 @@ class World:
     def __init__(self, ship_kwargs=None, scale = 1, waypoint_support=True):
         self.ship_kwargs = ship_kwargs
         self.listener = ContactDetector()
-        self.world = Box2D.b2World(contactListener = self.listener, gravity = World.GRAVITY)
+        self.world = Box2D.b2World(contactListener = self.listener, gravity = World.GRAVITY, userData=self)
+        #self.world.userData = self
         self.ships =  []
         self.target = None
         self.rocks = []
         self.ship = None
         self.viewer = None
+        self.ship_viewer = None
         self.scale = scale
         self.populate()
 
@@ -139,6 +142,7 @@ class World:
         self.ships = []
         self.rocks = []
         self.viewer = None
+        self.ship_viewer = None
         self.populate()
 
         if self.waypoint_support:
@@ -299,9 +303,46 @@ class World:
     def is_success(self):
         return self.get_ship_target_dist() <= 0 # since - radius, that means center is inside
 
+    def render_ship_view(self, mode='human', close=False):
+        if close:
+            if self.ship_viewer:
+                self.ship_viewer.close()
+                self.ship_viewer = None
+            return
+
+        ship = self.ship
+        radius = ship.obs_radius
+        first_time = not self.ship_viewer
+
+        if first_time:
+
+            self.ship_viewer = rendering.Viewer(radius * 2, radius * 2)
+            win_x, win_y = self.ship_viewer.window.get_location()
+            print(win_x, win_y)
+            self.ship_viewer.window.set_location(win_x + 600, win_y - 350)
+            
+        for obstacle in self.get_obstacles():
+            obstacle.render(self.ship_viewer, first_time=first_time, ship_view=True)
+        x, y = self.ship.body.position
+        left = x - radius
+        right = x + radius
+        top = y + radius
+        bottom = y - radius
+
+        #world_left, world_bottom = self.ship.body.GetWorldPoint((left, bottom))
+        #world_right, world_top = self.ship.body.GetWorldPoint((right, top))
+
+        self.ship_viewer.set_bounds(left, right, bottom, top)
+        #self.ship_viewer.transform.set_rotation(np.pi)
+        
+        return self.ship_viewer.render(return_rgb_array=mode == 'rgb_array')
+
+
+
     def render(self, mode='human', close=False):
         DEBORDER = 10
         cyan = rgb(126, 150, 233)
+        first_time = not self.viewer
 
         #print([d.userData for d in self.drawlist])
         if close:
@@ -310,11 +351,9 @@ class World:
                 self.viewer = None
             return
 
-        from gym.envs.classic_control import rendering
-
         ship = self.ship
 
-        if not self.viewer:
+        if first_time:
 
             self.viewer = rendering.Viewer(self.WIDTH, self.HEIGHT)
             
@@ -334,7 +373,7 @@ class World:
                 self.viewer.add_geom(path)
 
         for body in self.get_bodies():
-            body.render(self.viewer)
+            body.render(self.viewer, first_time)
 
         if self.waypoint_support:
             for i, waypoint in enumerate(self.waypoints):
