@@ -18,10 +18,10 @@ class World:
     #RENDER
     MAIN_WIN_HEIGHT= 720
     MAIN_WIN_WIDTH = 1280
-    SHIP_VIEW_HEIGHT = 300
-    SHIP_VIEW_WIDTH = 300
-    WIN_SHIFT_X = -200
-    WIN_SHIFT_Y = 150
+    SHIP_VIEW_HEIGHT = 400
+    SHIP_VIEW_WIDTH = 400
+    WIN_SHIFT_X = -300
+    WIN_SHIFT_Y = 180
 
     def __init__(self, ship_kwargs=None, scale = 1, waypoint_support=True):
         self.ship_kwargs = ship_kwargs
@@ -275,8 +275,8 @@ class World:
                 obstacle.distance_to_ship = distance
                 obstacle.bearing_from_ship = bearing
                 if obstacle.type == BodyType.SHIP:
-                    obs_angle = obstacle.body.angle + math.pi/2 # the +math.pi/2 is to use y axis of ship instead of x for readability
-                    obstacle.bearing_to_ship = np.arctan2(*self.ship.body.GetLocalVector((math.cos(obs_angle), math.sin(obs_angle))))
+                    obs_angle = obstacle.body.angle #+ math.pi/2 # the +math.pi/2 is to use y axis of ship instead of x for readability
+                    obstacle.bearing_to_ship = np.arctan2(*reversed(self.ship.body.GetLocalVector((math.cos(obs_angle), math.sin(obs_angle)))))
                 obstacle.seen = self.ship.can_see(obstacle)
                 if not obstacle.seen:
                     obstacle.unsee()
@@ -312,6 +312,7 @@ class World:
         return self.get_ship_target_dist() <= 0 # since - radius, that means center is inside
 
     def render_ship_view(self, mode='human', close=False):
+        DEBORDER = 3
         if close:
             if self.ship_viewer:
                 self.ship_viewer.close()
@@ -329,13 +330,23 @@ class World:
             self.ship_viewer.window.set_location(
                     win_x + (self.MAIN_WIN_WIDTH + self.SHIP_VIEW_WIDTH)//2 + self.WIN_SHIFT_X,
                     win_y - (self.MAIN_WIN_HEIGHT + self.SHIP_VIEW_HEIGHT)//2 + self.WIN_SHIFT_Y)
+
+            background = rendering.FilledPolygon((
+                (-DEBORDER * self.WIDTH, -DEBORDER * self.HEIGHT),
+                (-DEBORDER * self.WIDTH, DEBORDER*self.HEIGHT),
+                (DEBORDER * self.WIDTH, DEBORDER*self.HEIGHT),
+                (DEBORDER*self.WIDTH, -DEBORDER*self.HEIGHT)))
+
+            background.set_color(0,0,0)
+            self.ship_viewer.add_geom(background)
             
         for obstacle in self.get_obstacles():
             obstacle.render(self.ship_viewer, first_time=first_time, ship_view=True)
             trans = obstacle.ship_view_trans
             trans.set_translation(*self.ship.body.GetLocalPoint(obstacle.body.position))
             angle = obstacle.body.angle
-            local_angle = np.arctan2(*self.ship.body.GetLocalVector((math.cos(angle), math.sin(angle))))
+            ship_angle=self.ship.body.angle
+            local_angle = np.arctan2(*reversed(self.ship.body.GetLocalVector((math.cos(angle), math.sin(angle)))))
             trans.set_rotation(local_angle)
 
         for geom in self.ship_viewer.geoms + self.ship_viewer.onetime_geoms: 
@@ -356,7 +367,7 @@ class World:
 
 
 
-    def render(self, mode='human', close=False):
+    def render(self, mode='human', close=False, width=SHIP_VIEW_WIDTH, height=SHIP_VIEW_HEIGHT):
         DEBORDER = 3
         cyan = rgb(126, 150, 233)
         first_time = not self.viewer
@@ -377,10 +388,10 @@ class World:
             self.viewer.window.set_location(win_x + self.WIN_SHIFT_X, win_y + self.WIN_SHIFT_Y)
             
             water = rendering.FilledPolygon((
-                (-DEBORDER * self.MAIN_WIN_WIDTH, -DEBORDER * self.MAIN_WIN_HEIGHT),
-                (-DEBORDER * self.MAIN_WIN_WIDTH, DEBORDER*self.MAIN_WIN_HEIGHT),
-                (DEBORDER * self.MAIN_WIN_WIDTH, DEBORDER*self.MAIN_WIN_HEIGHT),
-                (DEBORDER*self.MAIN_WIN_WIDTH, -DEBORDER*self.MAIN_WIN_WIDTH)))
+                (-DEBORDER * self.WIDTH, -DEBORDER * self.HEIGHT),
+                (-DEBORDER * self.WIDTH, DEBORDER*self.HEIGHT),
+                (DEBORDER * self.WIDTH, DEBORDER*self.HEIGHT),
+                (DEBORDER*self.WIDTH, -DEBORDER*self.HEIGHT)))
 
             water.set_color(*cyan)
             self.viewer.add_geom(water)
@@ -495,11 +506,13 @@ class ShipsAndRocksWorld(ShipsOnlyWorldLidar):
         RockOnlyWorldLidar.init_specific(self, n_lidars)
         ShipsOnlyWorld.init_specific(self, n_ships, ship_scale)
         World.__init__(self, ship_kwargs, scale=max(self.rock_scale, self.ship_scale), waypoint_support=waypoint_support)
+
+    def _add_obstacles(self):
+        ShipsOnlyWorld._add_obstacles(self)
+        RockOnlyWorld._add_obstacles(self)
         
 
     def populate(self):
-        ShipsOnlyWorld._add_obstacles(self)
-        RockOnlyWorld._add_obstacles(self)
         World.populate(self)
         
 

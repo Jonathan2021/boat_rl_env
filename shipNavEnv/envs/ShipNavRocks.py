@@ -297,6 +297,9 @@ class ShipNavRocks(gym.Env):
 
         #if self.stepnumber == 1:
         #    print(len(self.state))
+
+        #if self.stepnumber == 1:
+        #    print(self.world.render_ship_view(mode='rgb_array'))
         #print(ship.body.linearVelocity)
         #print(ship.body.angularVelocity)
         #print(ship.body.GetLocalVector(ship.body.linearVelocity))

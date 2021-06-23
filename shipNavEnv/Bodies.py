@@ -363,6 +363,7 @@ class ShipObstacle(Ship, Obstacle):
     def take_random_actions(self, fps):
         steer = np.random.uniform(-1, 1)
         thrust = np.random.uniform(-1, 1)
+
         self.steer(steer, fps)
         self.thrust(thrust, fps)
     
