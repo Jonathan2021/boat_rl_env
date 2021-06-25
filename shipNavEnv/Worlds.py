@@ -280,7 +280,7 @@ class World:
                 self.waypoints = self.waypoints[1:]
                     
 
-    def step(self, fps):
+    def step(self, fps, update_obstacles=True):
         for body in self.get_bodies():
             body.step(fps)
         ### DEBUG ###
@@ -294,7 +294,8 @@ class World:
         self.delta_dist = prev_dist - self.get_ship_objective_dist()
         
         self.ship.update()
-        self.update_obstacle_data()
+        if update_obstacles:
+            self.update_obstacle_data()
         if self.waypoint_support:
             self.update_waypoints()
         
@@ -309,8 +310,6 @@ class World:
         radius = ship.obs_radius
 
         if first_time:
-
-
             background = rendering.FilledPolygon((
                 (-DEBORDER * self.WIDTH, -DEBORDER * self.HEIGHT),
                 (-DEBORDER * self.WIDTH, DEBORDER*self.HEIGHT),

@@ -100,6 +100,8 @@ class ShipNavMultiShipsLidarRadar(ShipNavMultiShipsRadius):
     def _get_obs_space(self):
         return ShipNavRocksLidar._get_obs_space(self)
 
+    def _build_world(self):
+        return ShipNavMultiShipsLidar._build_world(self)
+
     def _get_state(self):
-        #print(self._get_obstacle_state())
-        return ShipNavRocks._get_state(self)
+        return np.concatenate((ShipNavMultiShipsRadius._get_state(self), ShipNavRocksLidar._get_lidar_state(self)), dtype=np.float32)
