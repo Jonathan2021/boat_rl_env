@@ -42,7 +42,7 @@ Discrete control inputs are:
 
 # gym env class
 class ShipNavMultiShipsRadius(ShipNavRocks):
-    SHIP_OBSTACLE_STATE_LENGTH = 6
+    SINGLE_OBSTACLE_LENGTH = 6
 
     possible_kwargs = ShipNavRocks.possible_kwargs.copy()
     possible_kwargs.update({'n_ships': 0, 'scale':ShipsOnlyWorld.SCALE, 'waypoints':False})
@@ -86,23 +86,20 @@ class ShipNavMultiShipsRadius(ShipNavRocks):
         return state
         
 
-class ShipNavMultiShipsLidar(ShipNavMultiShipsRadius):
+class ShipNavMultiShipsLidar(ShipNavRocksLidar):
     possible_kwargs = ShipNavRocksLidar.possible_kwargs.copy()
     possible_kwargs.update({'n_ships': 0, 'scale':ShipsOnlyWorld.SCALE, 'waypoints':False})
 
     def _build_world(self):
         return ShipsOnlyWorldLidar(self.n_ships, self.n_lidars, self.scale, {'obs_radius': self.obs_radius}, waypoint_support=self.waypoints)
 
-    def _get_state(self):
-        #print(self._get_obstacle_state())
-        return np.concatenate((ShipNavRocksLidar._get_state(self), self._get_obstacle_state()))
-
-    def _get_obs_space(self):
-        return ShipNavRocksLidar._get_obs_space(self)
-
-class ShipNavMultiShipsLidarRadar(ShipNavMultiShipsLidar):
+class ShipNavMultiShipsLidarRadar(ShipNavMultiShipsRadius):
     possible_kwargs = ShipNavMultiShipsLidar.possible_kwargs.copy()
     possible_kwargs.update(ShipNavMultiShipsRadius.possible_kwargs)
 
     def _get_obs_space(self):
-        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + self.n_lidars + self.SHIP_OBSTACLE_STATE_LENGTH * self.n_obstacles_obs,), dtype=np.float32)
+        return ShipNavRocksLidar._get_obs_space(self)
+
+    def _get_state(self):
+        #print(self._get_obstacle_state())
+        return ShipNavRocks._get_state(self)

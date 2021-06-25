@@ -10,8 +10,10 @@ import numpy as np
 import gym
 from gym import spaces
 from gym.utils import seeding
-from shipNavEnv.Worlds import RockOnlyWorld, RockOnlyWorldLidar
+from shipNavEnv.Worlds import RockOnlyWorld, RockOnlyWorldLidar, World
 from shipNavEnv.Bodies import BodyType
+from pyvirtualdisplay import Display
+from gym.envs.classic_control import rendering
 
 """
 The objective of this environment is control a ship to reach a target
@@ -48,6 +50,16 @@ class ShipNavRocks(gym.Env):
     MAX_STEPS = MAX_TIME * FPS  # max steps for a simulation
     SHIP_STATE_LENGTH = 6
     WORLD_STATE_LENGTH = 2
+    OBSTACLE_STATE_LENGTH = World.SHIP_VIEW_HEIGHT * World.SHIP_VIEW_WIDTH * 3
+    SINGLE_OBSTACLE_LENGTH = 2
+
+    #RENDER
+    MAIN_WIN_HEIGHT= 720
+    MAIN_WIN_WIDTH = 1280
+    SHIP_VIEW_HEIGHT = 400
+    SHIP_VIEW_WIDTH = 400
+    WIN_SHIFT_X = -250
+    WIN_SHIFT_Y = 100
 
     def __init__(self,**kwargs):
         
@@ -55,6 +67,7 @@ class ShipNavRocks(gym.Env):
         # FIXME: Should move kwargs access in some configure function, can keep it in dict form (with defaults) and then iterate on keys
         #FIXME: Defaults should be in var
         self._read_kwargs(**kwargs)
+        self._update_obstacle_state_length()
            
         self.seed()
         self.world = self._build_world()
@@ -81,14 +94,25 @@ class ShipNavRocks(gym.Env):
         
         # Left or Right (or nothing)
         self.action_space = spaces.Discrete(3)
-       
+
+
+        # Rendering
+        self.main_viewer = None
+        self.ship_viewer = None
+        self.ship_state_viewer = None
+        self.virt_disp_hidden =  Display(visible=False, size=(World.SHIP_VIEW_WIDTH, World.SHIP_VIEW_HEIGHT), manage_global_env=False)
+        self.virt_disp_hidden.start()
+        
         self.reset()
+
+    def __del__(self):
+        self.virt_disp_hidden.stop()
 
     def _build_world(self):
         return RockOnlyWorld(self.n_rocks, self.scale, {'obs_radius': self.obs_radius}, self.waypoints)
 
     def _get_obs_space(self):
-        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + 2 * self.n_obstacles_obs,), dtype=np.float32)
+        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + self.OBSTACLE_STATE_LENGTH ,), dtype=np.float32)
     
     def _get_ship_kwargs(self):
         return {
@@ -98,6 +122,8 @@ class ShipNavRocks(gym.Env):
     possible_kwargs = {
             'n_rocks': 0,
             'scale': RockOnlyWorld.ROCK_SCALE_DEFAULT,
+            'ship_view': True,
+            'get_obstacles': False,
             'n_obstacles_obs': 10,
             'obs_radius': 200,
             'waypoints': True,
@@ -110,6 +136,13 @@ class ShipNavRocks(gym.Env):
         for key, default in self.possible_kwargs.items():
             setattr(self, key, kwargs.get(key, default))
 
+    def _update_obstacle_state_length(self):
+        self.OBSTACLE_STATE_LENGTH = 0 
+        if self.ship_view:
+            self.OBSTACLE_STATE_LENGTH += World.SHIP_VIEW_HEIGHT * World.SHIP_VIEW_WIDTH * 3
+        if self.get_obstacles:
+            self.OBSTACLE_STATE_LENGTH = self.SINGLE_OBSTACLE_LENGTH * self.n_obstacles_obs
+
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
@@ -120,6 +153,7 @@ class ShipNavRocks(gym.Env):
         #print("I should take %f" % self.MAX_TIME_SHOULD_TAKE)
 
     def reset(self):
+
         self.world.reset()
         self.obstacles = []
 
@@ -137,6 +171,10 @@ class ShipNavRocks(gym.Env):
         self.time_rew = 0
         self.dist_rew = 0
         self.reward_max_time = 0
+
+        # Rendering
+        self.view_state_rendered_once = False
+        self.rendered_once = False
 
         return self._get_state()
     
@@ -223,13 +261,24 @@ class ShipNavRocks(gym.Env):
                 state.append(1)
                 state.append(np.random.uniform(-1, 1))
         return state
+    
+    def _get_ship_view_state(self):
+        if not self.ship_state_viewer:
+            self.ship_state_viewer = rendering.Viewer(self.world.SHIP_VIEW_WIDTH, self.world.SHIP_VIEW_HEIGHT, display=self.virt_disp_hidden.new_display_var)
+        self.world.render_ship_view(self.ship_state_viewer, not self.view_state_rendered_once)
+        self.view_state_rendered_once = True
+        return self.ship_state_viewer.render(return_rgb_array = True).flatten()
 
     def _get_state(self):
         state = []
         state += self._get_ship_state()
         state += self._get_world_state()
-        state += self._get_obstacle_state()
-        return np.array(state, dtype=np.float32)
+        if self.get_obstacles:
+            state += self._get_obstacle_state()
+        state = np.array(state, dtype=np.float32)
+        if self.ship_view:
+            state = np.concatenate((state, self._get_ship_view_state()), dtype=np.float32)
+        return state
 
     def _dist_reward(self):
         return self.world.delta_dist / self.original_dist * 100 # we're trying to reach target so being close should be rewarded
@@ -329,13 +378,39 @@ class ShipNavRocks(gym.Env):
         return self.state, self.reward, done, {"is_success": self.is_success}
 
     def render(self, mode='human', close=False):
+        if close:
+            if self.main_viewer is not None:
+                self.main_viewer.close()
+            if self.ship_viewer is not None:
+                self.ship_viewer.close()
+            self.ship_viewer = None
+            self.main_viewer = None
+            return
+
+        if not self.main_viewer or not self.ship_viewer:
+            self.main_viewer = rendering.Viewer(self.MAIN_WIN_WIDTH, self.MAIN_WIN_HEIGHT)
+            win_x, win_y = self.main_viewer.window.get_location()
+            self.main_viewer.window.set_location(win_x + self.WIN_SHIFT_X, win_y + self.WIN_SHIFT_Y)
+
+            self.ship_viewer = rendering.Viewer(self.world.SHIP_VIEW_WIDTH, self.world.SHIP_VIEW_HEIGHT)
+            win_x, win_y = self.ship_viewer.window.get_location()
+            self.ship_viewer.window.set_location(
+                    win_x + (self.MAIN_WIN_WIDTH + self.SHIP_VIEW_WIDTH)//2 + self.WIN_SHIFT_X,
+                    win_y - (self.MAIN_WIN_HEIGHT + self.SHIP_VIEW_HEIGHT)//2 + self.WIN_SHIFT_Y + 200)
+
+        #self.main_viewer.set_bounds("b", "a", "d", "e")
+
         #print([d.userData for d in self.drawlist])
-        if mode =='human':
-            all_close = self.world.render_ship_view(mode, close)
-            all_close = self.world.render(mode, close) and all_close
-            return all_close
-        else:
-            return self.world.render_ship_view(mode, close)
+        self.world.render_ship_view(self.ship_viewer, not self.rendered_once)
+        self.world.render(self.main_viewer, not self.rendered_once)
+
+        self.rendered_once = True
+
+        all_close = self.ship_viewer.render(return_rgb_array = mode == 'rgb_array')
+        all_close = self.main_viewer.render(return_rgb_array = mode == 'rgb_array') and all_close
+        return all_close
+        #else:
+        #    return self.world.render_ship_view(mode, close)
 
 class ShipNavRocksContinuousSteer(ShipNavRocks):
     def __init__(self,**kwargs):
@@ -372,6 +447,7 @@ class ShipNavRocksSteerAndThrustContinuous(ShipNavRocks):
 
 
 class ShipNavRocksLidar(ShipNavRocks):
+    SINGLE_OBSTACLE_LENGTH = 0 # Trick not to observe obstacles even if in kwargs
     possible_kwargs = ShipNavRocks.possible_kwargs.copy()
     possible_kwargs.update({'n_lidars': 15, 'obs_radius': 0})
 
@@ -379,13 +455,20 @@ class ShipNavRocksLidar(ShipNavRocks):
         return RockOnlyWorldLidar(self.n_rocks, self.n_lidars, self.scale, self._get_ship_kwargs(), waypoint_support=self.waypoints)
 
     def _get_obs_space(self):
-        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + self.n_lidars,), dtype=np.float32)
+        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + self.n_lidars + self.OBSTACLE_STATE_LENGTH,), dtype=np.float32)
+
+    def _update_obstacle_state_length(self):
+        if self.ship_view:
+            self.OBSTACLE_STATE_LENGTH = World.SHIP_VIEW_HEIGHT * World.SHIP_VIEW_WIDTH * 3
+        else:
+            self.OBSTACLE_STATE_LENGTH = 0
     
     def _get_state(self):
         ship = self.world.ship
         state = self._get_ship_state()
         state += self._get_world_state()
-
         state += [2 * l.fraction - 1 for l in ship.lidars] 
-        
-        return np.array(state, dtype=np.float32)
+        state = np.array(state, dtype=np.float32)
+        if self.ship_view:
+            state = np.concatenate((state, self._get_ship_view_state()), dtype=np.float32)
+        return state

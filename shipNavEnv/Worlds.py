@@ -20,8 +20,8 @@ class World:
     MAIN_WIN_WIDTH = 1280
     SHIP_VIEW_HEIGHT = 400
     SHIP_VIEW_WIDTH = 400
-    WIN_SHIFT_X = -300
-    WIN_SHIFT_Y = 180
+    WIN_SHIFT_X = -250
+    WIN_SHIFT_Y = 100
 
     def __init__(self, ship_kwargs=None, scale = 1, waypoint_support=True):
         self.ship_kwargs = ship_kwargs
@@ -32,8 +32,6 @@ class World:
         self.target = None
         self.rocks = []
         self.ship = None
-        self.viewer = None
-        self.ship_viewer = None
         self.scale = scale
         self.populate()
 
@@ -149,8 +147,9 @@ class World:
         self.target = None
         self.ships = []
         self.rocks = []
-        self.viewer = None
-        self.ship_viewer = None
+        viewer = None
+        #viewer = None
+        #viewer_state = None
         self.populate()
 
         if self.waypoint_support:
@@ -311,25 +310,18 @@ class World:
     def is_success(self):
         return self.get_ship_target_dist() <= 0 # since - radius, that means center is inside
 
-    def render_ship_view(self, mode='human', close=False):
+    def render_ship_view(self, viewer, first_time):
         DEBORDER = 3
-        if close:
-            if self.ship_viewer:
-                self.ship_viewer.close()
-                self.ship_viewer = None
-            return
 
         ship = self.ship
         radius = ship.obs_radius
-        first_time = not self.ship_viewer
 
         if first_time:
 
-            self.ship_viewer = rendering.Viewer(self.SHIP_VIEW_WIDTH, self.SHIP_VIEW_HEIGHT)
-            win_x, win_y = self.ship_viewer.window.get_location()
-            self.ship_viewer.window.set_location(
+            win_x, win_y = viewer.window.get_location()
+            viewer.window.set_location(
                     win_x + (self.MAIN_WIN_WIDTH + self.SHIP_VIEW_WIDTH)//2 + self.WIN_SHIFT_X,
-                    win_y - (self.MAIN_WIN_HEIGHT + self.SHIP_VIEW_HEIGHT)//2 + self.WIN_SHIFT_Y)
+                    win_y - (self.MAIN_WIN_HEIGHT + self.SHIP_VIEW_HEIGHT)//2 + self.WIN_SHIFT_Y + 200)
 
             background = rendering.FilledPolygon((
                 (-DEBORDER * self.WIDTH, -DEBORDER * self.HEIGHT),
@@ -338,10 +330,11 @@ class World:
                 (DEBORDER*self.WIDTH, -DEBORDER*self.HEIGHT)))
 
             background.set_color(0,0,0)
-            self.ship_viewer.add_geom(background)
+            viewer.add_geom(background)
+        
             
         for obstacle in self.get_obstacles():
-            obstacle.render(self.ship_viewer, first_time=first_time, ship_view=True)
+            obstacle.render(viewer, first_time=first_time, ship_view=True)
             trans = obstacle.ship_view_trans
             trans.set_translation(*self.ship.body.GetLocalPoint(obstacle.body.position))
             angle = obstacle.body.angle
@@ -349,7 +342,7 @@ class World:
             local_angle = np.arctan2(*reversed(self.ship.body.GetLocalVector((math.cos(angle), math.sin(angle)))))
             trans.set_rotation(local_angle)
 
-        for geom in self.ship_viewer.geoms + self.ship_viewer.onetime_geoms: 
+        for geom in viewer.geoms + viewer.onetime_geoms: 
             if hasattr(geom, 'userData'):
                 geom.set_color(*geom.userData.get_color_ship_view())
             
@@ -361,31 +354,19 @@ class World:
         bottom = -radius
 
 
-        self.ship_viewer.set_bounds(left, right, bottom, top)
-        
-        return self.ship_viewer.render(return_rgb_array=mode == 'rgb_array')
+        viewer.set_bounds(left, right, bottom, top)
 
 
-
-    def render(self, mode='human', close=False, width=SHIP_VIEW_WIDTH, height=SHIP_VIEW_HEIGHT):
+    def render(self, viewer, first_time):
         DEBORDER = 3
         cyan = rgb(126, 150, 233)
-        first_time = not self.viewer
-
-        #print([d.userData for d in self.drawlist])
-        if close:
-            if self.viewer:
-                self.viewer.close()
-                self.viewer = None
-            return
 
         ship = self.ship
 
         if first_time:
 
-            self.viewer = rendering.Viewer(self.MAIN_WIN_WIDTH, self.MAIN_WIN_HEIGHT)
-            win_x, win_y = self.viewer.window.get_location()
-            self.viewer.window.set_location(win_x + self.WIN_SHIFT_X, win_y + self.WIN_SHIFT_Y)
+            win_x, win_y = viewer.window.get_location()
+            viewer.window.set_location(win_x + self.WIN_SHIFT_X, win_y + self.WIN_SHIFT_Y)
             
             water = rendering.FilledPolygon((
                 (-DEBORDER * self.WIDTH, -DEBORDER * self.HEIGHT),
@@ -394,18 +375,18 @@ class World:
                 (DEBORDER*self.WIDTH, -DEBORDER*self.HEIGHT)))
 
             water.set_color(*cyan)
-            self.viewer.add_geom(water)
+            viewer.add_geom(water)
 
             if self.waypoint_support:
                 path = rendering.PolyLine(self.path, False)
                 path.set_linewidth(5)
                 path.set_color(0, 0, 255)
-                self.viewer.add_geom(path)
+                viewer.add_geom(path)
 
         for body in self.get_bodies():
-            body.render(self.viewer, first_time)
+            body.render(viewer, first_time)
 
-        for geom in self.viewer.geoms + self.viewer.onetime_geoms: 
+        for geom in viewer.geoms + viewer.onetime_geoms: 
             if hasattr(geom, 'userData'):
                 geom.set_color(*geom.userData.get_color())
         
@@ -413,9 +394,9 @@ class World:
             for i, waypoint in enumerate(self.waypoints):
                 t = rendering.Transform(translation = waypoint)
                 if i == 0:
-                    self.viewer.draw_circle(self.WAYPOINT_RADIUS, color=(0,255,0), filled=False, linewidth=3).add_attr(t)
+                    viewer.draw_circle(self.WAYPOINT_RADIUS, color=(0,255,0), filled=False, linewidth=3).add_attr(t)
                 else:
-                    self.viewer.draw_circle(self.WAYPOINT_RADIUS, color=(0,0,255), filled=False, linewidth=3).add_attr(t)
+                    viewer.draw_circle(self.WAYPOINT_RADIUS, color=(0,0,255), filled=False, linewidth=3).add_attr(t)
 
 
                     
@@ -434,10 +415,8 @@ class World:
             width_min *= ratio_h/ratio_w
             width_max *= ratio_h/ratio_w
         
-        self.viewer.set_bounds(width_min,width_max,height_min,height_max)
+        viewer.set_bounds(width_min,width_max,height_min,height_max)
 
-        return self.viewer.render(return_rgb_array=mode == 'rgb_array')
-        
 
 class RockOnlyWorld(World):
     ROCK_SCALE_DEFAULT = 2
