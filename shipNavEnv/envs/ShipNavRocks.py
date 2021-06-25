@@ -10,9 +10,7 @@ import numpy as np
 import gym
 from gym import spaces
 from gym.utils import seeding
-from shipNavEnv.utils import InvisibleViewer
 from shipNavEnv.Worlds import RockOnlyWorld, RockOnlyWorldLidar, World
-from shipNavEnv.Bodies import BodyType
 from pyvirtualdisplay import Display
 from gym.envs.classic_control import rendering
 
