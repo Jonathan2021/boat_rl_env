@@ -9,6 +9,8 @@ import numpy as np
 import math
 from gym.envs.classic_control.rendering import Color
 from pyglet.gl import glColor4f
+from gym.envs.classic_control import rendering
+import pyglet
 
 # COLORS
 clist = []
@@ -64,3 +66,17 @@ class DynamicColor(Color):
         #print(self.fn)
         #print(self.fn())
         glColor4f(*self.fn(), 1)
+
+def get_window_invisible(width, height, display, **kwargs):
+    screen = display.get_screens() #available screens
+    config = screen[0].get_best_config() #selecting the first screen
+    context = config.create_context(None) #create GL context
+
+    return pyglet.window.Window(width=width, height=height, display=display, config=config, context=context, visible=True, **kwargs)
+
+class InvisibleViewer(rendering.Viewer):
+    def __init__(self, width, height, display=None):
+        tmp = rendering.get_window
+        rendering.get_window = get_window_invisible #Probably not thread safe
+        super().__init__(width, height, display)
+        rendering.get_window = tmp 

@@ -15,14 +15,6 @@ class World:
     DIAGONAL = np.sqrt(HEIGHT ** 2 + WIDTH ** 2)
     WAYPOINT_RADIUS = Ship.SHIP_HEIGHT
 
-    #RENDER
-    MAIN_WIN_HEIGHT= 720
-    MAIN_WIN_WIDTH = 1280
-    SHIP_VIEW_HEIGHT = 400
-    SHIP_VIEW_WIDTH = 400
-    WIN_SHIFT_X = -250
-    WIN_SHIFT_Y = 100
-
     def __init__(self, ship_kwargs=None, scale = 1, waypoint_support=True):
         self.ship_kwargs = ship_kwargs
         self.listener = ContactDetector()
@@ -318,10 +310,6 @@ class World:
 
         if first_time:
 
-            win_x, win_y = viewer.window.get_location()
-            viewer.window.set_location(
-                    win_x + (self.MAIN_WIN_WIDTH + self.SHIP_VIEW_WIDTH)//2 + self.WIN_SHIFT_X,
-                    win_y - (self.MAIN_WIN_HEIGHT + self.SHIP_VIEW_HEIGHT)//2 + self.WIN_SHIFT_Y + 200)
 
             background = rendering.FilledPolygon((
                 (-DEBORDER * self.WIDTH, -DEBORDER * self.HEIGHT),
@@ -365,8 +353,6 @@ class World:
 
         if first_time:
 
-            win_x, win_y = viewer.window.get_location()
-            viewer.window.set_location(win_x + self.WIN_SHIFT_X, win_y + self.WIN_SHIFT_Y)
             
             water = rendering.FilledPolygon((
                 (-DEBORDER * self.WIDTH, -DEBORDER * self.HEIGHT),
