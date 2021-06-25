@@ -13,6 +13,7 @@ from gym.utils import seeding
 from shipNavEnv.Worlds import RockOnlyWorld, RockOnlyWorldLidar, World
 from pyvirtualdisplay import Display
 from gym.envs.classic_control import rendering
+import os
 
 """
 The objective of this environment is control a ship to reach a target
@@ -100,6 +101,7 @@ class ShipNavRocks(gym.Env):
         self.main_viewer = None
         self.ship_viewer = None
         self.ship_state_viewer = None
+        self.render_display = os.environ['DISPLAY']
         self.virt_disp_hidden =  Display(visible=False, size=(1920,720), manage_global_env=False)
         self.virt_disp_hidden.start()
         
@@ -390,11 +392,11 @@ class ShipNavRocks(gym.Env):
             return
 
         if not self.main_viewer or not self.ship_viewer:
-            self.main_viewer = rendering.Viewer(self.MAIN_WIN_WIDTH, self.MAIN_WIN_HEIGHT)
+            self.main_viewer = rendering.Viewer(self.MAIN_WIN_WIDTH, self.MAIN_WIN_HEIGHT, display=self.render_display)
             win_x, win_y = self.main_viewer.window.get_location()
             self.main_viewer.window.set_location(win_x + self.WIN_SHIFT_X, win_y + self.WIN_SHIFT_Y)
 
-            self.ship_viewer = rendering.Viewer(self.SHIP_VIEW_WIDTH, self.SHIP_VIEW_HEIGHT)
+            self.ship_viewer = rendering.Viewer(self.SHIP_VIEW_WIDTH, self.SHIP_VIEW_HEIGHT, display=self.render_display)
             win_x, win_y = self.ship_viewer.window.get_location()
             self.ship_viewer.window.set_location(
                     win_x + (self.MAIN_WIN_WIDTH + self.SHIP_VIEW_WIDTH)//2 + self.WIN_SHIFT_X,

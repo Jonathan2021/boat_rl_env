@@ -2,7 +2,7 @@ from Box2D.b2 import fixtureDef, polygonShape, circleShape
 import numpy as np
 import math
 import abc
-from shipNavEnv.utils import getColor, rgb, DynamicColor
+from shipNavEnv.utils import getColor, rgb
 from enum import Enum
 from gym.envs.classic_control import rendering
 from shipNavEnv.Callbacks import LidarCallback
