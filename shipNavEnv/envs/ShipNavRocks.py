@@ -55,11 +55,11 @@ class ShipNavRocks(gym.Env):
     SHIP_VIEW_STATE_HEIGHT = 128
     SHIP_VIEW_STATE_WIDTH = 128
 
-    MAX_TIME = 200 # No more fuel at the end
+    MAX_TIME = 100 # No more fuel at the end
     FPS = 30            # simulation framerate
     MAX_STEPS = MAX_TIME * FPS  # max steps for a simulation
     SHIP_STATE_LENGTH = 6
-    WORLD_STATE_LENGTH = 2
+    WORLD_STATE_LENGTH = 1
     OBSTACLE_STATE_LENGTH = SHIP_VIEW_STATE_HEIGHT * SHIP_VIEW_STATE_WIDTH * 3
     SINGLE_OBSTACLE_LENGTH = 2
 
@@ -151,9 +151,9 @@ class ShipNavRocks(gym.Env):
         return [seed]
 
     def _adjust_times(self):
-        self.MAX_TIME_SHOULD_TAKE = 2 * self.world.dist_estimate / self.world.ship.Vmax # + Calculate somehow how long it takes to turn to bearing 0 ? Even if NN could learn that by itself
-        self.MAX_TIME_SHOULD_TAKE_STEPS = self.MAX_TIME_SHOULD_TAKE * self.fps
-        #print("I should take %f" % self.MAX_TIME_SHOULD_TAKE)
+        self.QUICKEST_TIME_SHOULD_TAKE = self.world.get_ship_objective_dist() / self.world.ship.Vmax # + Calculate somehow how long it takes to turn to bearing 0 ? Even if NN could learn that by itself
+        self.QUICKEST_TIME_SHOULD_TAKE_STEPS = self.QUICKEST_TIME_SHOULD_TAKE* self.fps
+        #print("I should take %f" % self.QUICKEST_TIME_SHOULD_TAKE)
 
     def reset(self):
         if self.main_viewer:
@@ -168,7 +168,7 @@ class ShipNavRocks(gym.Env):
 
         self._adjust_times()
 
-        #print(self.MAX_TIME_SHOULD_TAKE)
+        #print(self.QUICKEST_TIME_SHOULD_TAKE)
 
         self.stepnumber = 0
         self.episode_reward = 0
@@ -254,7 +254,7 @@ class ShipNavRocks(gym.Env):
         return state        
 
     def _get_world_state(self):
-        return [2 * self.stepnumber / self.MAX_STEPS - 1, 2*self.MAX_TIME_SHOULD_TAKE / self.MAX_TIME - 1]
+        return [2 * self.stepnumber / self.MAX_STEPS - 1] #, 2*self.QUICKEST_TIME_SHOULD_TAKE/ self.MAX_TIME - 1]
     
     def _get_obstacle_state(self):
         ship = self.world.ship
@@ -291,12 +291,13 @@ class ShipNavRocks(gym.Env):
         return state
 
     def _dist_reward(self):
-        return self.world.delta_dist / self.original_dist * 100 # we're trying to reach target so being close should be rewarded
+        return self.world.delta_dist / (self.world.ship.Vmax / self.FPS) * 2 * abs(self._timestep_reward()) # Helps to make agent know it should go to objective (not redundant of timestep-wise neg reward because suppose agent knows it is too far to get there in time, at least it'll try to get closer) (normalized by max dist should be able to take in a step). Proportional to timestep reward because I want going quite straight to objective to yield positive reward (So that it doesn't do straight into a rock to end the suffering)
+        #return self.world.delta_dist / self.original_dist * 100 # we're trying to reach target so being close should be rewarded
 
     def _timestep_reward(self):
-        reward = -100 / (self.MAX_STEPS) # Could be analogous to gas left, normalized to be -100 at the end. (ran out of gas)
-        if self.stepnumber > self.MAX_TIME_SHOULD_TAKE_STEPS:
-            reward -= 0.1
+        reward = -200 / (self.MAX_STEPS) # Could be analogous to gas left, normalized to be -100 at the end. (ran out of gas)
+        #if self.stepnumber > 2 * self.QUICKEST_TIME_SHOULD_TAKE_STEPS:
+        #    reward -= 0.1
         return reward
 
     def _hit_reward(self):
@@ -304,7 +305,8 @@ class ShipNavRocks(gym.Env):
         done = False
         reward = 0
         if ship.is_hit() and not self.world.target in ship.hit_with: # FIXME Will not know if hit is new or not !
-            reward -= 50 #high negative reward. hitting anything else than target is bad
+            #reward -= 50 #high negative reward. hitting anything else than target is bad
+            #Removed the neg reward to experiment
             done = True
         return reward, done
 
@@ -354,9 +356,9 @@ class ShipNavRocks(gym.Env):
         #    for rock in self.world.rocks:
         #        print(rock.body.position)
 
-        if self.stepnumber == 1:
-            print(self.state.shape)
-            print(self.observation_space.shape)
+        #if self.stepnumber == 1:
+        #    print(self.state.shape)
+        #    print(self.observation_space.shape)
         #    print(self.OBSTACLE_STATE_LENGTH)
 
         #if self.stepnumber == 1:
