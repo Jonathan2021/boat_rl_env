@@ -104,13 +104,17 @@ class ShipNavRocks(gym.Env):
         self.ship_viewer = None
         self.ship_state_viewer = None
         self.render_display = os.environ['DISPLAY']
-        self.virt_disp_hidden =  Display(visible=False, size=(1920,720), manage_global_env=False)
-        self.virt_disp_hidden.start()
+        if self.ship_view:
+            self.virt_disp_hidden =  Display(visible=False, size=(self.SHIP_VIEW_STATE_WIDTH, self.SHIP_VIEW_STATE_HEIGHT), manage_global_env=False)
+            self.virt_disp_hidden.start()
         
         self.reset()
 
     def __del__(self):
-        self.virt_disp_hidden.stop()
+        if self.ship_view:
+            self.virt_disp_hidden.stop()
+            if self.ship_state_viewer:
+                self.ship_state_viewer.window.close()
 
     def _build_world(self):
         return RockOnlyWorld(self.n_rocks, self.scale, {'obs_radius': self.obs_radius}, self.waypoints)
