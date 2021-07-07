@@ -391,12 +391,12 @@ class ShipNavRocks(gym.Env):
         info = {"is_success": self.is_success};
         mainShipPosX = np.double(self.world.ship.body.position[0])
         mainShipPosY = np.double(self.world.ship.body.position[1])
-        info['mainShipPosition'] = (0,mainShipPosX,mainShipPosY)
+        info['ship_0'] = (mainShipPosX,mainShipPosY)
         
         for i,ship in enumerate(self.world.ships):
             shipPosX = np.double(ship.body.position[0])
             shipPosY = np.double(ship.body.position[1])
-            info['ship_{0}'.format(i+1)] = (i+1,shipPosX,shipPosY)
+            info['ship_{0}'.format(i+1)] = (shipPosX,shipPosY)
         return self.state, self.reward, done, info
 
     def render(self, mode='human', close=False):
