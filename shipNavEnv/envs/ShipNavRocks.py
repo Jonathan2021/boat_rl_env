@@ -83,7 +83,6 @@ class ShipNavRocks(gym.Env):
         self.reward = 0
         self.episode_reward = 0
         self.drawlist = None
-        self.traj = []
         self.prev_dist = None
         self.obstacles = []
 
@@ -345,8 +344,8 @@ class ShipNavRocks(gym.Env):
 
     def step(self, action):
         self._take_actions(action)
-
-        self.world.step(self.fps, update_obstacles=self.get_obstacles)
+        addDotTraj = self.display_traj and (self.stepnumber % np.ceil(self.display_traj_T*self.fps) == 0)
+        self.world.step(self.fps, update_obstacles=self.get_obstacles, addDotTraj=addDotTraj)
         self.stepnumber += 1
         
         self.state = self._get_state()
@@ -378,25 +377,21 @@ class ShipNavRocks(gym.Env):
         
         self.reward, done = self._get_reward_done()
         self.episode_reward += self.reward
-
-        #FIXME separate function
-        #render trajectory
-        if self.display_traj:
-            if self.stepnumber % int(self.display_traj_T*self.fps) == 0: #FIXME If fps is low then int(<1) -> Division by 0 error. Should Take math.ceil instead or something.
-                self.traj.append(self.world.ship.body.position) #FIXME
-            print(len(self.traj))
-        # print(state)
+            
+       # print(state)
         # if done: 
         #     print("Returning reward %d" % self.reward)
         info = {"is_success": self.is_success};
-        mainShipPosX = np.double(self.world.ship.body.position[0])
-        mainShipPosY = np.double(self.world.ship.body.position[1])
-        info['ship_0'] = (mainShipPosX,mainShipPosY)
+        mainShipPosEast = np.double(self.world.ship.body.position[0])
+        mainShipPosNorth = np.double(self.world.ship.body.position[1])
+        mainShipHeading = (self.world.ship.body.angle + np.pi) % (2 * np.pi) - np.pi
+        info['ship_0'] = (mainShipPosEast,mainShipPosNorth,mainShipHeading)
         
         for i,ship in enumerate(self.world.ships):
-            shipPosX = np.double(ship.body.position[0])
-            shipPosY = np.double(ship.body.position[1])
-            info['ship_{0}'.format(i+1)] = (shipPosX,shipPosY)
+            shipPosEast = np.double(ship.body.position[0])
+            shipPosNorth = np.double(ship.body.position[1])
+            shipHeading = (ship.body.angle + np.pi) % (2 * np.pi) - np.pi
+            info['ship_{0}'.format(i+1)] = (shipPosEast,shipPosNorth,shipHeading)
         return self.state, self.reward, done, info
 
     def render(self, mode='human', close=False):

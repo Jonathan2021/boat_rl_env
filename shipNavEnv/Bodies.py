@@ -141,13 +141,15 @@ class Ship(Body):
     VmaxY = Vmax
     VmaxX = Vmax / SCALE_K_Yv
 
-    def __init__(self, world, init_angle, position, obs_radius, **kwargs):
+    def __init__(self, world, init_angle, position, obs_radius,display_Traj = False, **kwargs):
         Body.__init__(self, world, init_angle, position, **kwargs)
         self.throttle = 1
         self.thruster_angle = 0
         self.type = BodyType.SHIP
         self.obs_radius = obs_radius
-    
+        self.trajPos = [position]
+        self.trajDots = []
+        
         #Rendering transform
         self.shiptrans = rendering.Transform()
         self.thrustertrans = rendering.Transform()
@@ -255,7 +257,6 @@ class Ship(Body):
                 viewer.add_geom(pol)
 
 
-
     def render(self, viewer, first_time=True, ship_view=None):
         if first_time:
                 self.add_geoms(viewer, ship_view)
@@ -263,6 +264,7 @@ class Ship(Body):
         self.thrustertrans.set_translation(0, -self.SHIP_HEIGHT / 2)
         self.shiptrans.set_translation(*self.body.position)
         self.shiptrans.set_rotation(self.body.angle)
+        
     
     def update(self):
         pass
@@ -336,13 +338,32 @@ class ShipLidar(Ship):
                     
             self.world.RayCast(lidar, lidar.p1, lidar.p2)
     
-    def update(self):
+    def update(self, addTraj = False):
         self._update_lidars()
-
+        if addTraj:
+            self.trajPos.append(self.body.position)
+        
+    def add_geoms(self, viewer, ship_view):
+        Ship.add_geoms(self, viewer, ship_view)
+            
     def render(self, viewer, first_time=True, ship_view=None):
         Ship.render(self, viewer, first_time, ship_view)
         for lidar in self.lidars:
             viewer.draw_polyline( [lidar.p1, lidar.p2], color=rgb(255, 0, 0), linewidth=1)
+        for pos in self.trajPos:
+            dot = rendering.make_circle(radius=2, res=30, filled=True)
+            dotpos = rendering.Transform()
+            dotpos.set_translation(*pos)
+            dot.add_attr(dotpos)
+            viewer.add_geom(dot)
+            self.trajDots.append(dot)
+        self.trajPos = []
+        shipColor = np.array(self.get_color())
+        startColor = shipColor*0.5 +0.5*np.array([1,1,1])
+        for i,dot in enumerate(self.trajDots):
+            c = i/len(self.trajDots)
+            dotColor = tuple((1-c)*startColor +c*shipColor)
+            dot.set_color(*dotColor)
 
 class ShipObstacle(Ship, Obstacle):
     def __init__(self, world, init_angle, position, **kwargs):
