@@ -22,15 +22,17 @@ class ContactDetector(b2ContactListener):
 
 
 class PlaceOccupied(b2QueryCallback):
-    def __init__(self, ignore=[], ignore_type=[]):
+    def __init__(self, ignore=[], ignore_type=[], dont_ignore=[]):
         b2QueryCallback.__init__(self)
         self.fixture = None
         self.ignore = ignore
         self.ignore_type = ignore_type
+        self.dont_ignore = dont_ignore
 
     def ReportFixture(self, fixture):
         # Continue the query by returning True
-        if fixture.body.userData in self.ignore or fixture.body.userData.type in self.ignore_type:
+        data = fixture.body.userData
+        if not data in self.dont_ignore and (data in self.ignore or data.type in self.ignore_type):
             return True
         self.fixture = fixture
         return False # Stop query

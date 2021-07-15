@@ -1,4 +1,4 @@
-from shipNavEnv.envs import ShipNavRocks, ShipNavMultiShipsLidarRadar
+from shipNavEnv.envs import ShipNavMultiShipsLidarRadar
 from shipNavEnv.Worlds import ShipsAndRocksWorld
 from functools import partial
 

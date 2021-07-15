@@ -129,7 +129,8 @@ class World:
         self.ship.body.massData = mass # Recalculates mass when destroying a fixture but since we calculated our own, put it back (or body won't move)
 
         self.target = Target(self.world, (self.WIDTH, self.HEIGHT))
-        self.get_random_free_space(self.target, ignore_type=[BodyType.SHIP])
+        self.get_random_free_space(self.target, ignore_type=[BodyType.SHIP], dont_ignore=[self.ship])
+
 
     def reset(self):
         for body in self.get_bodies():
@@ -180,18 +181,20 @@ class World:
 
     # FIXME According to Box2D doc Caution: Do not create a body at the origin and then move it. If you create several bodies at the origin, then performance will suffer.
     # Fix idea -> use functools partial to create body with position and return it (or destroy it)
-    def get_random_free_space(self, body : Body, trial = 0, limit = 200, ignore_type=[]):
+    def get_random_free_space(self, body : Body, trial = 0, limit = 200, ignore_type=[], dont_ignore=[]):
         if trial == limit:
+            #if body.type == BodyType.TARGET:
+            #    print("Limit Trial")
             return False # FIXME (maybe take something outside world border
         body_ = body.body
-        query = PlaceOccupied(ignore=[body], ignore_type=ignore_type)
+        query = PlaceOccupied(ignore=[body], ignore_type=ignore_type, dont_ignore=dont_ignore)
         position = self.get_random_pos()
         body_.position = position
         for fixture in body_.fixtures:
             aabb = fixture.GetAABB(0)
             self.world.QueryAABB(query, aabb)
-            if query.fixture and query.fixture.body.userData != self.ship: #FIXME A bit ugly
-                return self.get_random_free_space(body, trial +1, limit)
+            if query.fixture: #FIXME A bit ugly
+                return self.get_random_free_space(body, trial +1, limit, ignore_type=ignore_type, dont_ignore=dont_ignore)
         return True        
 
 
@@ -222,6 +225,7 @@ class World:
             dist = get_path_dist([self.ship.body.position] + self.waypoints)
             dist += np.linalg.norm(self._get_pos_dist(self.waypoints[-1], x))
         dist -= (x.radius if hasattr(x, 'radius') else 0)
+        dist = max(0, dist)
         return dist
 
 
@@ -415,7 +419,8 @@ class RockOnlyWorld(World):
         super().__init__(ship_kwargs, self.rock_scale, waypoint_support)
 
     def _add_obstacles(self):
-        for i in range(self.n_rocks):
+        nb_rocks = np.random.randint(self.n_rocks * 0.5, self.n_rocks * 1.5) if self.n_rocks else 0
+        for i in range(nb_rocks):
             pos = self.get_random_pos(scale = self.rock_scale)
             rock = Rock(self.world, pos)
             #print(rock.body.fixtures[0].GetAABB(0))
@@ -445,7 +450,8 @@ class ShipsOnlyWorld(World):
         super().__init__(ship_kwargs, scale, waypoint_support=waypoint_support)
 
     def _add_obstacles(self):
-        for i in range(self.n_ships):
+        n_ships = np.random.randint(self.n_ships * 0.5, self.n_ships * 1.5) if self.n_ships else 0
+        for i in range(n_ships):
             pos = self.get_random_pos(scale=self.ship_scale)
             angle = self.get_random_angle()
             ship = ShipObstacle(self.world, angle, pos)
