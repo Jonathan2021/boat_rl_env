@@ -52,8 +52,11 @@ class ShipNavRocks(gym.Env):
     SHIP_VIEW_WIDTH = 400
     WIN_SHIFT_X = -250
     WIN_SHIFT_Y = 100
-    SHIP_VIEW_STATE_HEIGHT = 128
-    SHIP_VIEW_STATE_WIDTH = 128
+    SHIP_VIEW_STATE_HEIGHT = 200
+    SHIP_VIEW_STATE_WIDTH = 200
+
+    # RL
+    FINAL_TRANS_REW = 1
 
     MAX_TIME = 100 # No more fuel at the end
     FPS = 30            # simulation framerate
@@ -62,6 +65,13 @@ class ShipNavRocks(gym.Env):
     WORLD_STATE_LENGTH = 1
     OBSTACLE_STATE_LENGTH = SHIP_VIEW_STATE_HEIGHT * SHIP_VIEW_STATE_WIDTH * 3
     SINGLE_OBSTACLE_LENGTH = 2
+    
+    #Naming
+    SPACE_LIDAR = 'lidars'
+    SPACE_WORLD = 'world'
+    SPACE_OBS = 'obstacles'
+    SPACE_SHIP = 'ship' # lol
+    SPACE_SHIP_VIEW = 'ship view'
 
 
     def __init__(self,**kwargs):
@@ -88,7 +98,9 @@ class ShipNavRocks(gym.Env):
         self.obstacles = []
 
         self.reward_hit = 0
+        self.success_rew = 0
         self.time_rew = 0
+        self.angle_rew = 0
         self.dist_rew = 0
         self.reward_max_time = 0
         
@@ -103,24 +115,31 @@ class ShipNavRocks(gym.Env):
         self.main_viewer = None
         self.ship_viewer = None
         self.ship_state_viewer = None
-        self.render_display = os.environ['DISPLAY']
+        self.render_display = ':1' # os.environ['DISPLAY'] <- Not thread safe
         if self.ship_view:
-            self.virt_disp_hidden =  Display(visible=False, size=(self.SHIP_VIEW_STATE_WIDTH, self.SHIP_VIEW_STATE_HEIGHT), manage_global_env=False)
+            #os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = '0'
+            self.virt_disp_hidden =  Display(visible=False, size=(1000, 1000), manage_global_env=False)
             self.virt_disp_hidden.start()
-        
+       
         self.reset()
-
-    def __del__(self):
-        if self.ship_view:
-            self.virt_disp_hidden.stop()
-            if self.ship_state_viewer:
-                self.ship_state_viewer.window.close()
 
     def _build_world(self):
         return RockOnlyWorld(self.n_rocks, self.scale, {'obs_radius': self.obs_radius}, self.waypoints)
 
+    def _get_space_dict(self):
+        space_dict = dict()
+        if self.SHIP_STATE_LENGTH:
+            space_dict[self.SPACE_SHIP] = spaces.Box(-1.0, 1.0, shape=(self.SHIP_STATE_LENGTH,), dtype=np.float32)
+        if self.WORLD_STATE_LENGTH:
+            space_dict[self.SPACE_WORLD] = spaces.Box(-1.0, 1.0, shape=(self.WORLD_STATE_LENGTH,), dtype=np.float32)
+        if self.get_obstacles:
+            space_dict[self.SPACE_OBS] = spaces.Box(-1.0, 1.0, shape=(self.OBSTACLE_STATE_LENGTH,), dtype=np.float32)
+        if self.ship_view:
+            space_dict[self.SPACE_SHIP_VIEW] = spaces.Box(0, 255, shape=(3, self.SHIP_VIEW_STATE_WIDTH, self.SHIP_VIEW_STATE_HEIGHT), dtype=np.uint8)
+        return space_dict
+
     def _get_obs_space(self):
-        return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + self.OBSTACLE_STATE_LENGTH ,), dtype=np.float32)
+        return spaces.Dict(self._get_space_dict())
     
     def _get_ship_kwargs(self):
         return {
@@ -128,7 +147,7 @@ class ShipNavRocks(gym.Env):
                 }
 
     possible_kwargs = {
-            'n_rocks': 0,
+            'n_rocks': 40,
             'scale': RockOnlyWorld.ROCK_SCALE_DEFAULT,
             'ship_view': True,
             'n_obstacles_obs': 0,
@@ -143,12 +162,12 @@ class ShipNavRocks(gym.Env):
         for key, default in self.possible_kwargs.items():
             setattr(self, key, kwargs.get(key, default))
         
-        self.get_obstacles = self.n_obstacles_obs
+        self.get_obstacles = self.n_obstacles_obs > 0 and self.SINGLE_OBSTACLE_LENGTH > 0
 
     def _update_obstacle_state_length(self):
         self.OBSTACLE_STATE_LENGTH = 0 
-        if self.ship_view:
-            self.OBSTACLE_STATE_LENGTH += self.SHIP_VIEW_STATE_HEIGHT * self.SHIP_VIEW_STATE_WIDTH * 3
+        #if self.ship_view:
+        #    self.OBSTACLE_STATE_LENGTH += self.SHIP_VIEW_STATE_HEIGHT * self.SHIP_VIEW_STATE_WIDTH * 3
         self.OBSTACLE_STATE_LENGTH += self.SINGLE_OBSTACLE_LENGTH * self.n_obstacles_obs
 
     def seed(self, seed=None):
@@ -182,7 +201,9 @@ class ShipNavRocks(gym.Env):
         self.is_success = False
 
         self.reward_hit = 0
+        self.success_rew = 0
         self.time_rew = 0
+        self.angle_rew = 0
         self.dist_rew = 0
         self.reward_max_time = 0
 
@@ -191,7 +212,7 @@ class ShipNavRocks(gym.Env):
         self.rendered_once = False
 
         return self._get_state()
-    
+
     def _take_actions(self, action):
         ship = self.world.ship
         
@@ -282,35 +303,39 @@ class ShipNavRocks(gym.Env):
             #self.ship_state_viewer = InvisibleViewer(self.SHIP_VIEW_WIDTH, self.SHIP_VIEW_HEIGHT)
         self.world.render_ship_view(self.ship_state_viewer, not self.view_state_rendered_once)
         self.view_state_rendered_once = True
-        return self.ship_state_viewer.render(return_rgb_array = True).flatten()
+        pixels = self.ship_state_viewer.render(return_rgb_array = True)
+        pixels = np.moveaxis(pixels, -1, 0)
+        return pixels
 
     def _get_state(self):
-        state = []
-        state += self._get_ship_state()
-        state += self._get_world_state()
+        state = dict()
+        state[self.SPACE_SHIP] = self._get_ship_state()
+        state[self.SPACE_WORLD] = self._get_world_state()
         if self.get_obstacles:
-            state += self._get_obstacle_state()
-        state = np.array(state, dtype=np.float32)
+            state[self.SPACE_OBS] = self._get_obstacle_state()
         if self.ship_view:
-            state = np.concatenate((state, self._get_ship_view_state()), dtype=np.float32)
+            state[self.SPACE_SHIP_VIEW] = self._get_ship_view_state()
         return state
 
     def _dist_reward(self):
-        return self.world.delta_dist / (self.world.ship.Vmax / self.FPS) * 2 * abs(self._timestep_reward()) # Helps to make agent know it should go to objective (not redundant of timestep-wise neg reward because suppose agent knows it is too far to get there in time, at least it'll try to get closer) (normalized by max dist should be able to take in a step). Proportional to timestep reward because I want going quite straight to objective to yield positive reward (So that it doesn't do straight into a rock to end the suffering)
+        return self.world.delta_dist / (self.world.ship.Vmax / self.FPS) * 2 * abs(self._timestep_reward())  # Helps to make agent know it should go to objective (not redundant of timestep-wise neg reward because suppose agent knows it is too far to get there in time, at least it'll try to get closer) (normalized by max dist should be able to take in a step). Proportional to timestep reward because I want going quite straight to objective to yield positive reward (So that it doesn't do straight into a rock to end the suffering)
         #return self.world.delta_dist / self.original_dist * 100 # we're trying to reach target so being close should be rewarded
 
     def _timestep_reward(self):
-        reward = -200 / (self.MAX_STEPS) # Could be analogous to gas left, normalized to be -100 at the end. (ran out of gas)
+        reward = - 1 / (self.MAX_STEPS) # Could be analogous to gas left, normalized to be -100 at the end. (ran out of gas)
         #if self.stepnumber > 2 * self.QUICKEST_TIME_SHOULD_TAKE_STEPS:
         #    reward -= 0.1
         return reward
+    
+    def _get_thruster_angle_delta_reward(self):
+        return -abs(self.delta_thruster_angle) / self.world.ship.THRUSTER_MAX_ANGLE_STEP / self.MAX_TIME # Such as, if max step possible at a given fps for every step on max_steps -> then -1
 
     def _hit_reward(self):
         ship = self.world.ship
         done = False
         reward = 0
         if ship.is_hit() and not self.world.target in ship.hit_with: # FIXME Will not know if hit is new or not !
-            #reward -= 50 #high negative reward. hitting anything else than target is bad
+            reward -= self.FINAL_TRANS_REW #high negative reward. hitting anything else than target is bad
             #Removed the neg reward to experiment
             done = True
         return reward, done
@@ -320,20 +345,25 @@ class ShipNavRocks(gym.Env):
         done = False
         # limits episode to self.MAX_STEPS
         if self.stepnumber >= self.MAX_STEPS:
-            reward -= 50 # same as rock
+            reward -= self.FINAL_TRANS_REW # same as rock
             done = True
         return reward, done
     
     def _get_reward_done(self):
         reward = 0
         done = False
-        reward += self._dist_reward()
-        self.dist_rew += reward
-        #print("Dist reward %.8f" % reward)
+        #dist_reward = self._dist_reward()
+        #self.dist_rew += dist_reward
+        #reward += dist_reward
+        #print("Dist reward %.8f" % dist_reward)
         time_reward = self._timestep_reward()
         self.time_rew += time_reward
-        #print("Time reward %.8f" % time_reward)
         reward += time_reward
+        #print("Time reward %.8f" % time_reward)
+        angle_rew = self._get_thruster_angle_delta_reward()
+        self.angle_rew += angle_rew
+        #print("Angle rew %.8f" % angle_rew)
+        reward += angle_rew
         reward_hit, done = self._hit_reward()
         self.reward_hit += reward_hit
         #print("Hit reward %.8f" % reward_hit)
@@ -345,12 +375,28 @@ class ShipNavRocks(gym.Env):
         done = done or done_max_time
 
         self.is_success = self.world.is_success()
+        if self.is_success:
+            self.success_rew = self.FINAL_TRANS_REW
+            reward += self.success_rew
         done = done or self.is_success
         #print("Total reward %.8f" % reward)
+        #if done:
+            #if self.stepnumber < 3:
+            #    print("Distance %s" % self.original_dist)
+            #    self.render()
+            #    import time
+            #    time.sleep(15)
+            #print("Hit rew %d" % self.reward_hit)
+            #print("Success rew %d" % self.success_rew)
+            #print("time_rew %f" % self.time_rew)
+            #print("dist_rew %f" % self.dist_rew)
+            #print("rew max time %d" % self.reward_max_time)
         return reward, done
 
     def step(self, action):
+        prev_angle = self.world.ship.thruster_angle
         self._take_actions(action)
+        self.delta_thruster_angle = self.world.ship.thruster_angle - prev_angle
 
         self.world.step(self.fps, update_obstacles=self.get_obstacles)
         self.stepnumber += 1
@@ -362,8 +408,8 @@ class ShipNavRocks(gym.Env):
         #        print(rock.body.position)
 
         #if self.stepnumber == 1:
-        #    print(self.state.shape)
-        #    print(self.observation_space.shape)
+        #    print(self.state.keys())
+        #    print(self.observation_space)
         #    print(self.OBSTACLE_STATE_LENGTH)
 
         #if self.stepnumber == 1:
@@ -435,6 +481,16 @@ class ShipNavRocks(gym.Env):
         #else:
         #    return self.world.render_ship_view(mode, close)
 
+    def close(self):
+        if self.ship_view:
+            if self.ship_state_viewer:
+                self.ship_state_viewer.close()
+            self.virt_disp_hidden.stop()
+            if self.ship_viewer:
+                self.ship_viewer.close()
+        if self.main_viewer:
+            self.main_viewer.close()
+
 class ShipNavRocksContinuousSteer(ShipNavRocks):
     def __init__(self,**kwargs):
         super().__init__(**kwargs)
@@ -472,29 +528,23 @@ class ShipNavRocksSteerAndThrustContinuous(ShipNavRocks):
 class ShipNavRocksLidar(ShipNavRocks):
     SINGLE_OBSTACLE_LENGTH = 0 # Trick not to observe obstacles even if in kwargs
     possible_kwargs = ShipNavRocks.possible_kwargs.copy()
-    possible_kwargs.update({'n_lidars': 15, 'obs_radius': 0, 'ship_view': False})
+    possible_kwargs.update({'n_lidars': 15, 'obs_radius': 0, 'ship_view': False, 'n_obstacles_obs': 0})
 
     def _build_world(self):
         return RockOnlyWorldLidar(self.n_rocks, self.n_lidars, self.scale, self._get_ship_kwargs(), waypoint_support=self.waypoints)
 
-    def _get_obs_space(self):
         return spaces.Box(-1.0,1.0,shape=(self.SHIP_STATE_LENGTH + self.WORLD_STATE_LENGTH + self.n_lidars + self.OBSTACLE_STATE_LENGTH,), dtype=np.float32)
-
-    def _update_obstacle_state_length(self):
-        if self.ship_view:
-            self.OBSTACLE_STATE_LENGTH = self.SHIP_VIEW_HEIGHT * self.SHIP_VIEW_WIDTH * 3
-        else:
-            self.OBSTACLE_STATE_LENGTH = 0
 
     def _get_lidar_state(self):
      return [2 * l.fraction - 1 for l in self.world.ship.lidars] 
+
+    def _get_space_dict(self):
+        space_dict = ShipNavRocks._get_space_dict(self)
+        if self.n_lidars:
+            space_dict[self.SPACE_LIDAR] = spaces.Box(-1.0, 1.0, shape=(self.n_lidars,), dtype=np.float32)
+        return space_dict
     
     def _get_state(self):
-        ship = self.world.ship
-        state = self._get_ship_state()
-        state += self._get_world_state()
-        state += self._get_lidar_state()
-        state = np.array(state, dtype=np.float32)
-        if self.ship_view:
-            state = np.concatenate((state, self._get_ship_view_state()), dtype=np.float32)
+        state = ShipNavRocks._get_state(self)
+        state[self.SPACE_LIDAR] = self._get_lidar_state()
         return state

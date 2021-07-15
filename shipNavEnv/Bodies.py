@@ -65,7 +65,6 @@ class Body:
         col= (np.clip((v_x / Ship.Vmax + 1) / 2, 0, 1),
             np.clip((v_y / Ship.Vmax + 1) / 2, 0, 1),
             np.clip((self.body.angularVelocity / Ship.Rmax + 1) / 2, 0, 1))
-        #print(col)
         return col
 
 
@@ -88,7 +87,7 @@ class Obstacle(Body):
         self.seen = False
 
     def get_color(self):
-        return self.body.color2 if self.seen else self.body.color3 if self.is_hit() else self.body.color1
+        return self.body.color2 if self.seen else self.body.color1 if self.is_hit() else self.body.color1
 
 
 class RoundObstacle(Obstacle):
@@ -200,7 +199,6 @@ class Ship(Body):
     def steer(self, steer, fps=30):
         steer = np.clip(steer, -1, 1)
         steer = steer * Ship.THRUSTER_MAX_ANGLE_STEP / fps
-
         self.thruster_angle = np.clip(self.thruster_angle + steer, -Ship.THRUSTER_MAX_ANGLE, Ship.THRUSTER_MAX_ANGLE)
 
     def clean(self):
@@ -376,7 +374,7 @@ class ShipObstacle(Ship, Obstacle):
         self.bearing_to_ship = Obstacle.DEFAULT_BEARING 
 
     def get_color(self):
-        return self.body.color2 if self.seen else self.body.color3 if self.is_hit() else self.body.color1
+        return self.body.color2 if self.seen else self.body.color1 if self.is_hit() else self.body.color1
     
 class Rock(RoundObstacle):
     RADIUS = 20

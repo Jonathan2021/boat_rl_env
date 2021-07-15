@@ -45,13 +45,12 @@ class ShipNavMultiShipsRadius(ShipNavRocks):
     SINGLE_OBSTACLE_LENGTH = 6
 
     possible_kwargs = ShipNavRocks.possible_kwargs.copy()
-    possible_kwargs.update({'n_ships': 0, 'scale':ShipsOnlyWorld.SCALE, 'waypoints':False})
+    possible_kwargs.update({'n_ships': 50, 'scale':ShipsOnlyWorld.SCALE, 'waypoints':False})
     
     metadata = {
         'render.modes': ['human', 'rgb_array'],
         'video.frames_per_second': possible_kwargs['fps']
     }
-
 
     def _build_world(self):
         return ShipsOnlyWorld(self.n_ships, self.scale, {'obs_radius': self.obs_radius})
@@ -93,7 +92,7 @@ class ShipNavMultiShipsLidar(ShipNavRocksLidar):
     def _build_world(self):
         return ShipsOnlyWorldLidar(self.n_ships, self.n_lidars, self.scale, {'obs_radius': self.obs_radius}, waypoint_support=self.waypoints)
 
-class ShipNavMultiShipsLidarRadar(ShipNavMultiShipsRadius):
+class ShipNavMultiShipsLidarRadar(ShipNavMultiShipsRadius, ShipNavMultiShipsLidar):
     possible_kwargs = ShipNavMultiShipsLidar.possible_kwargs.copy()
     possible_kwargs.update(ShipNavMultiShipsRadius.possible_kwargs)
 
@@ -104,4 +103,4 @@ class ShipNavMultiShipsLidarRadar(ShipNavMultiShipsRadius):
         return ShipNavMultiShipsLidar._build_world(self)
 
     def _get_state(self):
-        return np.concatenate((ShipNavMultiShipsRadius._get_state(self), ShipNavRocksLidar._get_lidar_state(self)), dtype=np.float32)
+        return ShipNavRocksLidar._get_state(self)
