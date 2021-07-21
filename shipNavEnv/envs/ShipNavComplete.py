@@ -9,6 +9,6 @@ class ShipNavComplete(ShipNavMultiShipsLidarRadar):
     possible_kwargs.update({'rock_scale': ShipsAndRocksWorld.SCALE_SHIP, 'ship_scale': ShipsAndRocksWorld.SCALE_SHIP})
 
     def _build_world(self):
-        world = ShipsAndRocksWorld(self.n_ships, self.n_rocks, self.n_lidars, self.ship_scale, self.rock_scale, {'obs_radius': self.obs_radius}, self.waypoints)
+        world = ShipsAndRocksWorld(self.n_ships, self.n_rocks, self.n_lidars, self.ship_scale, self.rock_scale, {'obs_radius': self.obs_radius,'display_traj':self.display_traj}, self.waypoints)
         world.update_obstacle_data = partial(world.update_obstacle_data, rocks=False)
         return world

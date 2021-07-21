@@ -284,7 +284,7 @@ class World:
                 self.waypoints = self.waypoints[1:]
                     
 
-    def step(self, fps, update_obstacles=True):
+    def step(self, fps, update_obstacles=True,addDotTraj=False):
         for body in self.get_bodies():
             body.step(fps)
         ### DEBUG ###
@@ -296,8 +296,8 @@ class World:
         prev_dist = self.get_ship_objective_dist()
         self.world.Step(1.0 / fps, velocityIterations, positionIterations)
         self.delta_dist = prev_dist - self.get_ship_objective_dist()
-        
-        self.ship.update()
+
+        self.ship.update(addDotTraj)
         if update_obstacles:
             self.update_obstacle_data()
         if self.waypoint_support:
