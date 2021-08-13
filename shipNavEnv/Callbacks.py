@@ -7,13 +7,27 @@ class ContactDetector(b2ContactListener):
         super().__init__()
 
     def BeginContact(self, contact):
-        contact.fixtureA.body.userData.hit_with.append(contact.fixtureB.body.userData)
-        contact.fixtureB.body.userData.hit_with.append(contact.fixtureA.body.userData)
+        #print("In begin Contact")
+        #print("Is contact fixture A a sensor %s" % contact.fixtureA.sensor)
+        #print("Is contact fixture B a sensor %s" % contact.fixtureB.sensor)
+        if contact.fixtureA.sensor:
+            contact.fixtureA.userData['touching'].append(contact.fixtureB.body)
+        if contact.fixtureB.sensor:
+            contact.fixtureB.userData['touching'].append(contact.fixtureA.body)
+        if not contact.fixtureA.sensor and not contact.fixtureB.sensor:
+            contact.fixtureA.body.userData.hit_with.append(contact.fixtureB.body.userData)
+            contact.fixtureB.body.userData.hit_with.append(contact.fixtureA.body.userData)
         #print('There was a contact!')
 
     def EndContact(self, contact):
-        contact.fixtureA.body.userData.unhit(contact.fixtureB.body.userData)
-        contact.fixtureB.body.userData.unhit(contact.fixtureA.body.userData)
+        #print("Ending Contact")
+        if contact.fixtureA.sensor:
+            contact.fixtureA.userData['touching'].remove(contact.fixtureB.body)
+        if contact.fixtureB.sensor:
+            contact.fixtureB.userData['touching'].remove(contact.fixtureA.body)
+        if not contact.fixtureA.sensor and not contact.fixtureB.sensor:
+            contact.fixtureA.body.userData.unhit(contact.fixtureB.body.userData)
+            contact.fixtureB.body.userData.unhit(contact.fixtureA.body.userData)
 
     def PreSolve(self, contact, oldManifold):
         pass
@@ -41,11 +55,12 @@ class LidarCallback(b2RayCastCallback):
     """
     This class captures the closest hit shape.
     """
-    def __init__(self, dont_report, **kwargs):
+    def __init__(self, dont_report_type, dont_report_object, **kwargs):
         b2RayCastCallback.__init__(self)
         self.fixture = None
         self.fraction = 1
-        self.dont_report = dont_report
+        self.dont_report_type = dont_report_type
+        self.dont_report_object = dont_report_object
 
     # Called for each fixture found in the query. You control how the ray proceeds
     # by returning a float that indicates the fractional length of the ray. By returning
@@ -53,7 +68,7 @@ class LidarCallback(b2RayCastCallback):
     # to find the closest point. By returning 1, you continue with the original ray
     # clipping.
     def ReportFixture(self, fixture, point, normal, fraction):
-        if fixture.body.userData.type in self.dont_report:
+        if fixture.body.userData.type in self.dont_report_type or fixture.body.userData in self.dont_report_object or fixture.sensor:
             return -1
         self.fixture = fixture
         self.p2  = b2Vec2(point)
@@ -64,8 +79,8 @@ class LidarCallback(b2RayCastCallback):
         return fraction
 
 class CheckObstacleRayCallback(LidarCallback):
-    def __init__(self, dont_report, **kwargs):
-        super().__init__(dont_report, **kwargs)
+    def __init__(self, dont_report, dont_report_object=list(), **kwargs):
+        super().__init__(dont_report, dont_report_object, **kwargs)
         self.hit_obstacle = False
 
     # Called for each fixture found in the query. You control how the ray proceeds

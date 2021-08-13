@@ -66,3 +66,13 @@ class DynamicColor(Color):
         #print(self.fn)
         #print(self.fn())
         glColor4f(*self.fn(), 1)
+
+def make_half_circle(radius, init_angle = 0, res=15, filled=True):
+    points = []
+    for i in range(res):
+        ang = init_angle + (math.pi * i / (res-1))
+        points.append((math.cos(ang) * radius, math.sin(ang) * radius))
+    if filled:
+        return rendering.FilledPolygon(points)
+    else:
+        return rendering.PolyLine(points, False)

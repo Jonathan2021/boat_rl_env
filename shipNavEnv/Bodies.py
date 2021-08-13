@@ -2,10 +2,11 @@ from Box2D.b2 import fixtureDef, polygonShape, circleShape
 import numpy as np
 import math
 import abc
-from shipNavEnv.utils import getColor, rgb
+from shipNavEnv.utils import getColor, rgb, make_half_circle
 from enum import Enum
 from gym.envs.classic_control import rendering
 from shipNavEnv.Callbacks import LidarCallback
+from Box2D import b2PolygonShape, b2FixtureDef, b2ChainShape, b2EdgeShape, b2CircleShape
 
 class BodyType(Enum):
     BODY = 0,
@@ -171,6 +172,32 @@ class Ship(Body):
                 linearDamping=0,
                 angularDamping=0
                 )
+        # bumper
+        self.L1 = 1.6 * self.SHIP_HEIGHT
+        self.L2 = 6.4 * self.SHIP_HEIGHT
+
+        base_circle = b2FixtureDef(shape=b2CircleShape(pos=(0,0), radius=self.L1), isSensor=True)
+        upper_circle = b2FixtureDef(shape=b2CircleShape(pos=(0, self.L2 - self.L1), radius=self.L1), isSensor=True)
+        rectangle = b2FixtureDef(shape=b2PolygonShape(vertices=(
+            (-self.L1, 0),
+            (self.L1, 0),
+            (self.L1, self.L2-self.L1),
+            (-self.L1, self.L2-self.L1))), isSensor=True)
+        
+        self.sensors = []
+
+        base_circle = self.body.CreateFixture(base_circle, density=0)
+        base_circle.userData = {'init_angle_render': math.pi, 'touching': []}
+        self.sensors.append(base_circle)
+
+        upper_circle = self.body.CreateFixture(upper_circle, density=0)
+        upper_circle.userData = {'init_angle_render': 0, 'touching': []}
+        self.sensors.append(upper_circle)
+
+        rectangle = self.body.CreateFixture(rectangle, density=0)
+        rectangle.userData = {'lines_render': [[(-self.L1, self.L2-self.L1), (-self.L1, 0)], [(self.L1, 0), (self.L1, self.L2-self.L1)]], 'touching': []}
+        self.sensors.append(rectangle)
+
         self.MAX_LENGTH = np.sqrt(max(
                 self.SHIP_WIDTH ** 2 + self.SHIP_HEIGHT ** 2,
                 (self.SHIP_WIDTH / 2) ** 2 + (self.SHIP_HEIGHT * 1.1) ** 2))
@@ -189,7 +216,15 @@ class Ship(Body):
 
     def can_see(self, obstacle: Obstacle):
         return obstacle.distance_to_ship < self.obs_radius
-        
+
+    def bumper_state(self, ignore=[]):
+        touches = set()
+        for sens in self.sensors:
+            touches.update(sens.userData['touching'])
+        for body in ignore:
+            if body in touches:
+                touches.remove(body)
+        return bool(touches), len(touches)
 
     def thrust(self, inc_throttle, fps=30):
         #print(self.body.GetLocalVector(self.body.linearVelocity))
@@ -243,16 +278,36 @@ class Ship(Body):
                 viewer.add_geom(horizon)
 
             #trans = self.body.transform
+        shapes = []
         for f in self.body.fixtures:
+            isSensor = f in self.sensors
             if type(f.shape) is polygonShape:
-                pol = rendering.FilledPolygon(f.shape.vertices)
-                pol.userData = self
-                if ship_view:
-                    pol.add_attr(self.ship_view_trans)
+                if not isSensor:
+                    shape = rendering.FilledPolygon(f.shape.vertices)
+                    shape.set_color(*color)
+                    shapes.append(shape)
                 else:
-                    pol.add_attr(self.shiptrans)
-                pol.set_color(*color) 
-                viewer.add_geom(pol)
+                    for line in f.userData['lines_render']:
+                        shape = rendering.PolyLine(line, False)
+                        shape.set_color(*(133, 114, 216))
+                        shapes.append(shape)
+            elif type(f.shape) is circleShape:
+                if isSensor:
+                    shape = make_half_circle(radius=f.shape.radius, init_angle=f.userData['init_angle_render'], filled=False) 
+                    shape.set_color(*(133, 114, 216))
+                else:
+                    shape = rendering.make_circle(f.shape.radius)
+                    shape.set_color(*color)
+                shape.add_attr(rendering.Transform(translation=f.shape.pos))
+                shapes.append(shape)
+            
+        for shape in shapes:
+            if ship_view:
+                shape.add_attr(self.ship_view_trans)
+            else:
+                shape.add_attr(self.shiptrans)
+            shape.userData = self
+            viewer.add_geom(shape)
 
 
     def render(self, viewer, first_time=True, ship_view=None):
@@ -264,8 +319,9 @@ class Ship(Body):
         self.shiptrans.set_rotation(self.body.angle)
         
     
-    def update(self):
-        pass
+    def update(self, addTraj=False):
+        if addTraj:
+            self.trajPos.append(self.body.position)
 
     def step(self, fps):
         COGpos = self.body.GetWorldPoint(self.body.localCenter)
@@ -292,7 +348,7 @@ class ShipLidar(Ship):
         Ship.__init__(self, world, init_angle, position, **kwargs)
         self.nb_lidars = nb_lidars
         self.lidar_range = lidar_range
-        self.lidars = [LidarCallback(dont_report = [BodyType.TARGET]) for _ in range(self.nb_lidars)]
+        self.lidars = [LidarCallback(dont_report_type = [BodyType.TARGET], dont_report_object=[self]) for _ in range(self.nb_lidars)]
         self.update()
 
     def _update_lidars(self):
@@ -338,8 +394,7 @@ class ShipLidar(Ship):
     
     def update(self, addTraj = False):
         self._update_lidars()
-        if addTraj:
-            self.trajPos.append(self.body.position)
+        Ship.update(self, addTraj)
         
     def add_geoms(self, viewer, ship_view):
         Ship.add_geoms(self, viewer, ship_view)
@@ -379,15 +434,13 @@ class ShipObstacle(Ship, Obstacle):
     def render(self, viewer, first_time=True, ship_view=None):
         Ship.render(self, viewer, first_time, ship_view)
 
-    def take_random_actions(self, fps):
-        steer = np.random.uniform(-1, 1)
-        thrust = np.random.uniform(-1, 1)
-
-        self.steer(steer, fps)
-        self.thrust(thrust, fps)
+    def take_actions(self, fps):
+        pass # do nothing, keep going straight
     
     def step(self, fps):
-        self.take_random_actions(fps)
+        self.take_actions(fps)
+        self.thruster_angle = 0
+        self.throttle = 0
         Ship.step(self, fps)
 
     def unsee(self):
@@ -396,6 +449,18 @@ class ShipObstacle(Ship, Obstacle):
 
     def get_color(self):
         return self.body.color2 if self.seen else self.body.color1 if self.is_hit() else self.body.color1
+
+class ShipObstacleRand(ShipObstacle):
+    def __init__(self, world, init_angle, position, **kwargs):
+        ShipObstacle.__init__(self, world, init_angle, position, **kwargs)
+        self.body.color1 = rgb(60,185,119)
+
+    def take_actions(self, fps):
+        steer = np.random.uniform(-1, 1)
+        thrust = np.random.uniform(-1, 1)
+
+        self.steer(steer, fps)
+        self.thrust(thrust, fps)
     
 class Rock(RoundObstacle):
     RADIUS = 20
@@ -443,7 +508,7 @@ class Target(RoundObstacle):
             shape = circleShape(pos=(0,0), radius = self.radius),
             categoryBits=0x0010,
             maskBits=0x1111,
-            restitution=0.1, isSensor=True))
+            restitution=0.1, isSensor=True, userData={'touching': []}))
         self.body.userData = self
     
     def render(self, viewer, first_time=True, ship_view=None):

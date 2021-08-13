@@ -1,10 +1,11 @@
 import Box2D
 from Box2D import b2PolygonShape, b2FixtureDef, b2ChainShape, b2EdgeShape, b2CircleShape
-from shipNavEnv.Bodies import Ship, Rock, Target, Body, ShipObstacle, ShipLidar, BodyType
+from shipNavEnv.Bodies import Ship, Rock, Target, Body, ShipObstacle, ShipObstacleRand, ShipLidar, BodyType
 from shipNavEnv.Callbacks import ContactDetector, PlaceOccupied, CheckObstacleRayCallback
 from shipNavEnv.utils import rgb, calc_angle_two_points, get_path_dist
 from shipNavEnv.grid_logic.Grid import GridAdapter
 import numpy as np
+import random
 import math
 from gym.envs.classic_control import rendering
 
@@ -450,11 +451,15 @@ class ShipsOnlyWorld(World):
         super().__init__(ship_kwargs, scale, waypoint_support=waypoint_support)
 
     def _add_obstacles(self):
+        epsilon_random = 0.05
         n_ships = np.random.randint(self.n_ships * 0.5, self.n_ships * 1.5) if self.n_ships else 0
         for i in range(n_ships):
             pos = self.get_random_pos(scale=self.ship_scale)
             angle = self.get_random_angle()
-            ship = ShipObstacle(self.world, angle, pos)
+            if random.random() < epsilon_random:
+                ship = ShipObstacleRand(self.world, angle, pos)
+            else:
+                ship = ShipObstacle(self.world, angle, pos)
             self.ships.append(ship)
 
 class ShipsOnlyWorldLidar(ShipsOnlyWorld):

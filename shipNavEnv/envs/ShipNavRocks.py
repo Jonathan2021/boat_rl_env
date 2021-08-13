@@ -13,6 +13,7 @@ from gym.utils import seeding
 from shipNavEnv.Worlds import RockOnlyWorld, RockOnlyWorldLidar, World
 from pyvirtualdisplay import Display
 from gym.envs.classic_control import rendering
+from Box2D import b2CircleShape
 import os
 
 """
@@ -52,8 +53,8 @@ class ShipNavRocks(gym.Env):
     SHIP_VIEW_WIDTH = 400
     WIN_SHIFT_X = -250
     WIN_SHIFT_Y = 100
-    SHIP_VIEW_STATE_HEIGHT = 200
-    SHIP_VIEW_STATE_WIDTH = 200
+    SHIP_VIEW_STATE_HEIGHT = 96
+    SHIP_VIEW_STATE_WIDTH = 96
 
     # RL
     FINAL_TRANS_REW = 1
@@ -274,7 +275,7 @@ class ShipNavRocks(gym.Env):
         state.append(velocity_y / ship.VmaxY)
         state.append(ship.body.angularVelocity/ship.Rmax)
         state.append(ship.thruster_angle / ship.THRUSTER_MAX_ANGLE)
-        state.append(self.world.get_ship_objective_standard_dist())
+        state.append(self.world.get_ship_objective_standard_dist()) # 
         state.append(self.world.get_ship_objective_standard_bearing())
         return state        
 
@@ -326,8 +327,13 @@ class ShipNavRocks(gym.Env):
         #    reward -= 0.1
         return reward
     
-    def _get_thruster_angle_delta_reward(self):
-        return -abs(self.delta_thruster_angle) / self.world.ship.THRUSTER_MAX_ANGLE_STEP / self.MAX_TIME # Such as, if max step possible at a given fps for every step on max_steps -> then -1
+    def _get_thruster_angle_reward(self):
+        penalty = -abs(self.world.ship.thruster_angle / self.world.ship.THRUSTER_MAX_ANGLE) / self.MAX_TIME # Punish not going straight, such that if max angle for the whole episode, then gets -1 cumulative reward
+        #if self.world.ship.thruster > 
+        if self.world.ship.thruster_angle > 0:
+            penalty /= 2 # Encourage dodging to starboard side (kinda hacky but couldn't think of another way)
+        return penalty
+        #return -abs(self.delta_thruster_angle) / self.world.ship.THRUSTER_MAX_ANGLE_STEP / self.MAX_TIME # Such as, if max step possible at a given fps for every step on max_steps -> then -1
 
     def _hit_reward(self):
         ship = self.world.ship
@@ -359,7 +365,7 @@ class ShipNavRocks(gym.Env):
         self.time_rew += time_reward
         reward += time_reward
         #print("Time reward %.8f" % time_reward)
-        angle_rew = self._get_thruster_angle_delta_reward()
+        angle_rew = self._get_thruster_angle_reward()
         self.angle_rew += angle_rew
         #print("Angle rew %.8f" % angle_rew)
         reward += angle_rew
@@ -401,6 +407,11 @@ class ShipNavRocks(gym.Env):
         self.stepnumber += 1
         
         self.state = self._get_state()
+        #for sens in self.world.ship.sensors:
+        #    print(sens.userData['touching'])
+        #    if type(sens.shape) is b2CircleShape:
+        #        print(sens.shape.pos)
+        #print(self.world.ship.bumper_state())#ignore=[self.world.target.body]))
 
         #if self.stepnumber == 10:
         #    for rock in self.world.rocks:
