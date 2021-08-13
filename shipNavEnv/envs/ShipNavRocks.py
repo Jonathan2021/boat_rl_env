@@ -101,6 +101,7 @@ class ShipNavRocks(gym.Env):
         self.success_rew = 0
         self.time_rew = 0
         self.angle_rew = 0
+        self.bumper_rew = 0
         self.dist_rew = 0
         self.reward_max_time = 0
         
@@ -204,6 +205,7 @@ class ShipNavRocks(gym.Env):
         self.success_rew = 0
         self.time_rew = 0
         self.angle_rew = 0
+        self.bumper_rew = 0
         self.dist_rew = 0
         self.reward_max_time = 0
 
@@ -328,7 +330,7 @@ class ShipNavRocks(gym.Env):
         return reward
     
     def _get_thruster_angle_reward(self):
-        penalty = -abs(self.world.ship.thruster_angle / self.world.ship.THRUSTER_MAX_ANGLE) / self.MAX_TIME # Punish not going straight, such that if max angle for the whole episode, then gets -1 cumulative reward
+        penalty = -abs(self.world.ship.thruster_angle / self.world.ship.THRUSTER_MAX_ANGLE) / self.MAX_STEPS # Punish not going straight, such that if max angle for the whole episode, then gets -1 cumulative reward
         #if self.world.ship.thruster > 
         if self.world.ship.thruster_angle > 0:
             penalty /= 2 # Encourage dodging to starboard side (kinda hacky but couldn't think of another way)
@@ -353,6 +355,11 @@ class ShipNavRocks(gym.Env):
             reward -= self.FINAL_TRANS_REW # same as rock
             done = True
         return reward, done
+
+    def _bumper_reward(self):
+        _, n_touches = self.world.ship.bumper_state(ignore=[self.world.target.body])
+        #return n_touches * -1 / (self.world.n_obstacles * self.MAX_STEPS) # such as -1 in total if touching every possible obstacle at all times -> Seems a bit small, maybe should be bigger than timestep rew so that it choses to go around safely rather than speed up ? + it is n_obstacle dependent meaning training with less would yield bigger timestep impact when bumper touches, even if touches less etc.
+        return np.sqrt(n_touches) * -1 / self.MAX_STEPS # kinda hacky but if touches something then >= timestep reward and if touches more then punishes more without penalizing too much envs satured in obstacles
     
     def _get_reward_done(self):
         reward = 0
@@ -369,6 +376,10 @@ class ShipNavRocks(gym.Env):
         self.angle_rew += angle_rew
         #print("Angle rew %.8f" % angle_rew)
         reward += angle_rew
+        bumper_rew = self._bumper_reward()
+        self.bumper_rew += bumper_rew
+        #print("Bumper rew %.8f" % bumper_rew)
+        reward += bumper_rew
         reward_hit, done = self._hit_reward()
         self.reward_hit += reward_hit
         #print("Hit reward %.8f" % reward_hit)

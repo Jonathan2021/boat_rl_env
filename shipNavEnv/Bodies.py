@@ -439,8 +439,8 @@ class ShipObstacle(Ship, Obstacle):
     
     def step(self, fps):
         self.take_actions(fps)
-        self.thruster_angle = 0
-        self.throttle = 0
+        #self.thruster_angle = 0
+        #self.throttle = 0
         Ship.step(self, fps)
 
     def unsee(self):

@@ -27,6 +27,7 @@ class World:
         self.ship = None
         self.scale = scale
         self.populate()
+        self.n_obstacles = len(self.get_obstacles())
 
         self.waypoint_support = waypoint_support
         
@@ -145,6 +146,7 @@ class World:
         #viewer = None
         #viewer_state = None
         self.populate()
+        self.n_obstacles = len(self.get_obstacles())
 
         if self.waypoint_support:
             self.path = []
