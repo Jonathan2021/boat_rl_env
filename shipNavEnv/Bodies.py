@@ -224,7 +224,7 @@ class Ship(Body):
         for body in ignore:
             if body in touches:
                 touches.remove(body)
-        return bool(touches), len(touches)
+        return touches
 
     def thrust(self, inc_throttle, fps=30):
         #print(self.body.GetLocalVector(self.body.linearVelocity))
@@ -401,8 +401,9 @@ class ShipLidar(Ship):
             
     def render(self, viewer, first_time=True, ship_view=None):
         Ship.render(self, viewer, first_time, ship_view)
-        for lidar in self.lidars:
-            viewer.draw_polyline( [lidar.p1, lidar.p2], color=rgb(255, 0, 0), linewidth=1)
+        if not ship_view:
+            for lidar in self.lidars:
+                viewer.draw_polyline( [lidar.p1, lidar.p2], color=rgb(255, 0, 0), linewidth=1)
         for pos in self.trajPos:
             dot = rendering.make_circle(radius=2, res=30, filled=True)
             dotpos = rendering.Transform()
@@ -423,6 +424,7 @@ class ShipObstacle(Ship, Obstacle):
         #super(Obstacle).__init__(world, init_x, init_y)
         Obstacle.clean(self)
         Ship.__init__(self, world, init_angle, position, 0, **kwargs)
+        self.target_world_direction = self.body.GetWorldVector((0,1))
 
     def _build(self, *args, **kwargs):
         Ship._build(self, *args, **kwargs)
@@ -433,9 +435,53 @@ class ShipObstacle(Ship, Obstacle):
 
     def render(self, viewer, first_time=True, ship_view=None):
         Ship.render(self, viewer, first_time, ship_view)
+        if not ship_view:
+            target_dir_p2 = [ax * 20 + self.body.position[i] for i, ax in enumerate(self.target_world_direction)]
+            viewer.draw_polyline( [self.body.position, target_dir_p2], color=rgb(255, 0, 0), linewidth=1)
 
     def take_actions(self, fps):
-        pass # do nothing, keep going straight
+        look_ahead_lidar = LidarCallback(dont_report_type = [BodyType.TARGET], dont_report_object=[self])
+        look_ahead_lidar.p1 = self.body.position
+        look_ahead_lidar.p2 = self.body.GetWorldPoint((0, self.L2))
+        self.world.RayCast(look_ahead_lidar, look_ahead_lidar.p1, look_ahead_lidar.p2) # can still bump on side if barely going towards target.
+        if look_ahead_lidar.fraction < 1: # If something in front
+            #print("Something in front ! Gotta turn right !")
+            self.steer(1, fps) # steer to starboard as much as possible
+            return
+
+        touches = self.bumper_state(ignore=[self.world.userData.target.body])
+        bearings = [np.arctan2(*reversed(self.body.GetLocalPoint(body.position))) for body in touches]
+        for bearing in bearings:
+            if bearing <= math.pi / 2 and bearing >= -math.pi / 6: # Detected something on front starboard side
+                #print("Something on my right ! Gotta slow down and turn right")
+                #print("Bearing to it %f" % bearing)
+                self.thrust(-1, fps) # slow down
+                self.steer(1, fps) # go starboard
+                return
+
+        angle_to_target_dir = np.arctan2(*reversed(self.body.GetLocalVector(self.target_world_direction))) - math.pi/2
+        #print("Angle to target is %f" % angle_to_target_dir)
+        self.thrust(1, fps) # accelerate
+        if abs(angle_to_target_dir) > math.pi / 6:
+            #print("Gotta rectify")
+            look_to_target_lidar = LidarCallback(dont_report_type = [BodyType.TARGET], dont_report_object=[self])
+            look_to_target_lidar.p1 = self.body.position
+            look_to_target_lidar.p2 = self.body.GetWorldPoint((np.cos(angle_to_target_dir) * self.L2, np.sin(angle_to_target_dir) * self.L2))
+            self.world.RayCast(look_to_target_lidar, look_to_target_lidar.p1, look_to_target_lidar.p2)
+            if look_to_target_lidar.fraction == 1: # Nothing where we want to go
+                #print("Nothing in my pass mouahahahaha")
+                if angle_to_target_dir < 0 and angle_to_target_dir > -math.pi: # and self.thruster_angle >= 0:
+                    #print("Guess I'll steer right")
+                    self.steer(1, fps) # Steer port
+                else: # and self.thruster_angle <= 0:
+                    #print("Ok let's steer left!")
+                    self.steer(-1, fps) # Steer starboard
+        else:
+            #print("Straightening up of %f" % (-self.thruster_angle / (self.THRUSTER_MAX_ANGLE_STEP / fps)))
+            self.steer(-self.thruster_angle / (self.THRUSTER_MAX_ANGLE_STEP / fps), fps) #straighten up
+
+
+           
     
     def step(self, fps):
         self.take_actions(fps)
@@ -446,7 +492,8 @@ class ShipObstacle(Ship, Obstacle):
     def unsee(self):
         Obstacle.unsee(self)
         self.bearing_to_ship = Obstacle.DEFAULT_BEARING 
-
+    
+    
     def get_color(self):
         return self.body.color2 if self.seen else self.body.color1 if self.is_hit() else self.body.color1
 

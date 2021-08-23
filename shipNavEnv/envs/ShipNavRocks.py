@@ -357,7 +357,7 @@ class ShipNavRocks(gym.Env):
         return reward, done
 
     def _bumper_reward(self):
-        _, n_touches = self.world.ship.bumper_state(ignore=[self.world.target.body])
+        n_touches = len(self.world.ship.bumper_state(ignore=[self.world.target.body]))
         #return n_touches * -1 / (self.world.n_obstacles * self.MAX_STEPS) # such as -1 in total if touching every possible obstacle at all times -> Seems a bit small, maybe should be bigger than timestep rew so that it choses to go around safely rather than speed up ? + it is n_obstacle dependent meaning training with less would yield bigger timestep impact when bumper touches, even if touches less etc.
         return np.sqrt(n_touches) * -1 / self.MAX_STEPS # kinda hacky but if touches something then >= timestep reward and if touches more then punishes more without penalizing too much envs satured in obstacles
     

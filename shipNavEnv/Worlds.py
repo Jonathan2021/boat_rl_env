@@ -310,8 +310,18 @@ class World:
     def is_success(self):
         return self.get_ship_target_dist() <= 0 # since - radius, that means center is inside
 
-    def render_ship_view(self, viewer, first_time):
+    #perturbartion_defaults = {
+    #        'proba_rock_not_appearing': 0,
+    #        'proba_ship_not_appearing': 0,
+    #        'proba_ship_no_ais': 0,
+    #        'proba_render_not_working': 0,
+    #        'std_incorrect_position': 0,0
+    #        }
+    def render_ship_view(self, viewer, first_time, perturbation_dict=None):
         DEBORDER = 3
+
+    #    if not perturbation_dict:
+    #        perturbation_dict = self.perturbartion_defaults.copy()
 
         ship = self.ship
         radius = ship.obs_radius
