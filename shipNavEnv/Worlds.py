@@ -7,6 +7,7 @@ from shipNavEnv.grid_logic.Grid import GridAdapter
 import numpy as np
 import random
 import math
+import copy
 from gym.envs.classic_control import rendering
 
 class World:
@@ -317,7 +318,7 @@ class World:
     #        'proba_render_not_working': 0,
     #        'std_incorrect_position': 0,0
     #        }
-    def render_ship_view(self, viewer, first_time, perturbation_dict=None):
+    def render_ship_view(self, viewer, first_time, draw_traj, perturbation_dict=None):
         DEBORDER = 3
 
     #    if not perturbation_dict:
@@ -325,6 +326,8 @@ class World:
 
         ship = self.ship
         radius = ship.obs_radius
+
+        MAX_TRAIL_LENGTH = 5
 
         if first_time:
             background = rendering.FilledPolygon((
@@ -335,6 +338,7 @@ class World:
 
             background.set_color(0,0,0)
             viewer.add_geom(background)
+            self.dots = {id(obstacle): [] for obstacle in self.get_obstacles(rocks=False)}
         
             
         for obstacle in self.get_obstacles():
@@ -345,11 +349,25 @@ class World:
             ship_angle=self.ship.body.angle
             local_angle = np.arctan2(*reversed(self.ship.body.GetLocalVector((math.cos(angle), math.sin(angle)))))
             trans.set_rotation(local_angle)
+            if draw_traj and obstacle.type == BodyType.SHIP:
+                dot = rendering.make_circle(obstacle.SHIP_WIDTH / 2)
+                dot.transform = rendering.Transform()
+                dot.position = copy.copy(obstacle.body.position)
+                #dot.obstacle = obstacle
+                dot.set_color(*obstacle.get_color_ship_view())
+                #dot.add_attr(rendering.Transform(translation=obstacle.body.position))
+                dot.add_attr(dot.transform)
+                self.dots[id(obstacle)].append(dot)
+                self.dots[id(obstacle)] = self.dots[id(obstacle)][-MAX_TRAIL_LENGTH:]
+
+        for trail in self.dots.values():
+            for dot in trail:
+                dot.transform.set_translation(*self.ship.body.GetLocalPoint(dot.position))
+                viewer.add_onetime(dot)
 
         for geom in viewer.geoms + viewer.onetime_geoms: 
             if hasattr(geom, 'userData'):
                 geom.set_color(*geom.userData.get_color_ship_view())
-            
 
         x, y = self.ship.body.position
         left = - radius

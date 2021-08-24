@@ -404,20 +404,20 @@ class ShipLidar(Ship):
         if not ship_view:
             for lidar in self.lidars:
                 viewer.draw_polyline( [lidar.p1, lidar.p2], color=rgb(255, 0, 0), linewidth=1)
-        for pos in self.trajPos:
-            dot = rendering.make_circle(radius=2, res=30, filled=True)
-            dotpos = rendering.Transform()
-            dotpos.set_translation(*pos)
-            dot.add_attr(dotpos)
-            viewer.add_geom(dot)
-            self.trajDots.append(dot)
-        self.trajPos = []
-        shipColor = np.array(self.get_color())
-        startColor = shipColor*0.5 +0.5*np.array([1,1,1])
-        for i,dot in enumerate(self.trajDots):
-            c = i/len(self.trajDots)
-            dotColor = tuple((1-c)*startColor +c*shipColor)
-            dot.set_color(*dotColor)
+            for pos in self.trajPos:
+                dot = rendering.make_circle(radius=2, res=30, filled=True)
+                dotpos = rendering.Transform()
+                dotpos.set_translation(*pos)
+                dot.add_attr(dotpos)
+                viewer.add_geom(dot)
+                self.trajDots.append(dot)
+            self.trajPos = []
+            shipColor = np.array(self.get_color())
+            startColor = shipColor*0.5 +0.5*np.array([1,1,1])
+            for i,dot in enumerate(self.trajDots):
+                c = i/len(self.trajDots)
+                dotColor = tuple((1-c)*startColor +c*shipColor)
+                dot.set_color(*dotColor)
 
 class ShipObstacle(Ship, Obstacle):
     def __init__(self, world, init_angle, position, **kwargs):

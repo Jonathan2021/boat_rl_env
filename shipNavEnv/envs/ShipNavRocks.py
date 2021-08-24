@@ -303,7 +303,7 @@ class ShipNavRocks(gym.Env):
         if not self.ship_state_viewer:
             self.ship_state_viewer = rendering.Viewer(self.SHIP_VIEW_STATE_WIDTH, self.SHIP_VIEW_STATE_HEIGHT, display=self.virt_disp_hidden.new_display_var)
             #self.ship_state_viewer = InvisibleViewer(self.SHIP_VIEW_WIDTH, self.SHIP_VIEW_HEIGHT)
-        self.world.render_ship_view(self.ship_state_viewer, not self.view_state_rendered_once)
+        self.world.render_ship_view(self.ship_state_viewer, not self.view_state_rendered_once, self.stepnumber % self.fps == 0)
         self.view_state_rendered_once = True
         pixels = self.ship_state_viewer.render(return_rgb_array = True)
         pixels = np.moveaxis(pixels, -1, 0)
@@ -495,7 +495,7 @@ class ShipNavRocks(gym.Env):
         #print([d.userData for d in self.drawlist])
         all_close = True
         if self.ship_view:
-            self.world.render_ship_view(self.ship_viewer, not self.rendered_once)
+            self.world.render_ship_view(self.ship_viewer, not self.rendered_once, False)
             all_close = self.ship_viewer.render(return_rgb_array = mode == 'rgb_array')
 
         self.world.render(self.main_viewer, not self.rendered_once)
