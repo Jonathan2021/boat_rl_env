@@ -11,9 +11,16 @@ class ContactDetector(b2ContactListener):
         #print("Is contact fixture A a sensor %s" % contact.fixtureA.sensor)
         #print("Is contact fixture B a sensor %s" % contact.fixtureB.sensor)
         if contact.fixtureA.sensor:
-            contact.fixtureA.userData['touching'].append(contact.fixtureB.body)
+            if contact.fixtureB.sensor:
+                contact.fixtureA.userData['touching_sensor'].append(contact.fixtureB.body)
+            else:
+                contact.fixtureA.userData['touching_hard'].append(contact.fixtureB.body)
+
         if contact.fixtureB.sensor:
-            contact.fixtureB.userData['touching'].append(contact.fixtureA.body)
+            if contact.fixtureA.sensor:
+                contact.fixtureB.userData['touching_sensor'].append(contact.fixtureA.body)
+            else:
+                contact.fixtureB.userData['touching_hard'].append(contact.fixtureA.body)
         if not contact.fixtureA.sensor and not contact.fixtureB.sensor:
             contact.fixtureA.body.userData.hit_with.append(contact.fixtureB.body.userData)
             contact.fixtureB.body.userData.hit_with.append(contact.fixtureA.body.userData)
@@ -22,9 +29,15 @@ class ContactDetector(b2ContactListener):
     def EndContact(self, contact):
         #print("Ending Contact")
         if contact.fixtureA.sensor:
-            contact.fixtureA.userData['touching'].remove(contact.fixtureB.body)
+            if contact.fixtureB.sensor:
+                contact.fixtureA.userData['touching_sensor'].remove(contact.fixtureB.body)
+            else:
+                contact.fixtureA.userData['touching_hard'].remove(contact.fixtureB.body)
         if contact.fixtureB.sensor:
-            contact.fixtureB.userData['touching'].remove(contact.fixtureA.body)
+            if contact.fixtureA.sensor:
+                contact.fixtureB.userData['touching_sensor'].remove(contact.fixtureA.body)
+            else:
+                contact.fixtureB.userData['touching_hard'].remove(contact.fixtureA.body)
         if not contact.fixtureA.sensor and not contact.fixtureB.sensor:
             contact.fixtureA.body.userData.unhit(contact.fixtureB.body.userData)
             contact.fixtureB.body.userData.unhit(contact.fixtureA.body.userData)

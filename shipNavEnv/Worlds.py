@@ -194,7 +194,7 @@ class World:
         query = PlaceOccupied(ignore=[body], ignore_type=ignore_type, dont_ignore=dont_ignore)
         position = self.get_random_pos()
         body_.position = position
-        for fixture in body_.fixtures:
+        for fixture in body_.fixtures: # FIXME Should just use a sensor instead of AABB query
             aabb = fixture.GetAABB(0)
             self.world.QueryAABB(query, aabb)
             if query.fixture: #FIXME A bit ugly

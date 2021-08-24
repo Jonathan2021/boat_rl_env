@@ -5,7 +5,7 @@ import abc
 from shipNavEnv.utils import getColor, rgb, make_half_circle
 from enum import Enum
 from gym.envs.classic_control import rendering
-from shipNavEnv.Callbacks import LidarCallback
+from shipNavEnv.Callbacks import LidarCallback, PlaceOccupied
 from Box2D import b2PolygonShape, b2FixtureDef, b2ChainShape, b2EdgeShape, b2CircleShape
 
 class BodyType(Enum):
@@ -140,6 +140,10 @@ class Ship(Body):
     K_Yv = SCALE_K_Yv * K_Xu              # [N/(m/s)]
     VmaxY = Vmax
     VmaxX = Vmax / SCALE_K_Yv
+    
+    # bumper
+    L1 = 1.6 * SHIP_HEIGHT
+    L2 = 6.4 * SHIP_HEIGHT
 
     def __init__(self, world, init_angle, position, obs_radius,display_Traj = False, **kwargs):
         Body.__init__(self, world, init_angle, position, **kwargs)
@@ -172,9 +176,6 @@ class Ship(Body):
                 linearDamping=0,
                 angularDamping=0
                 )
-        # bumper
-        self.L1 = 1.6 * self.SHIP_HEIGHT
-        self.L2 = 6.4 * self.SHIP_HEIGHT
 
         base_circle = b2FixtureDef(shape=b2CircleShape(pos=(0,0), radius=self.L1), isSensor=True)
         upper_circle = b2FixtureDef(shape=b2CircleShape(pos=(0, self.L2 - self.L1), radius=self.L1), isSensor=True)
@@ -187,15 +188,15 @@ class Ship(Body):
         self.sensors = []
 
         base_circle = self.body.CreateFixture(base_circle, density=0)
-        base_circle.userData = {'init_angle_render': math.pi, 'touching': []}
+        base_circle.userData = {'init_angle_render': math.pi, 'touching_hard': [], 'touching_sensor': []}
         self.sensors.append(base_circle)
 
         upper_circle = self.body.CreateFixture(upper_circle, density=0)
-        upper_circle.userData = {'init_angle_render': 0, 'touching': []}
+        upper_circle.userData = {'init_angle_render': 0, 'touching_hard': [], 'touching_sensor': []}
         self.sensors.append(upper_circle)
 
         rectangle = self.body.CreateFixture(rectangle, density=0)
-        rectangle.userData = {'lines_render': [[(-self.L1, self.L2-self.L1), (-self.L1, 0)], [(self.L1, 0), (self.L1, self.L2-self.L1)]], 'touching': []}
+        rectangle.userData = {'lines_render': [[(-self.L1, self.L2-self.L1), (-self.L1, 0)], [(self.L1, 0), (self.L1, self.L2-self.L1)]], 'touching_hard': [], 'touching_sensor': []}
         self.sensors.append(rectangle)
 
         self.MAX_LENGTH = np.sqrt(max(
@@ -217,10 +218,13 @@ class Ship(Body):
     def can_see(self, obstacle: Obstacle):
         return obstacle.distance_to_ship < self.obs_radius
 
-    def bumper_state(self, ignore=[]):
+    def bumper_state(self, hard=True, sensor=True, ignore=[]):
         touches = set()
         for sens in self.sensors:
-            touches.update(sens.userData['touching'])
+            if hard:
+                touches.update(sens.userData['touching_hard'])
+            if sensor:
+                touches.update(sens.userData['touching_sensor'])
         for body in ignore:
             if body in touches:
                 touches.remove(body)
@@ -420,11 +424,16 @@ class ShipLidar(Ship):
                 dot.set_color(*dotColor)
 
 class ShipObstacle(Ship, Obstacle):
+
+    L1 = 0.8 * Ship.SHIP_HEIGHT
+    L2 = 3.2 * Ship.SHIP_HEIGHT
+
     def __init__(self, world, init_angle, position, **kwargs):
         #super(Obstacle).__init__(world, init_x, init_y)
         Obstacle.clean(self)
         Ship.__init__(self, world, init_angle, position, 0, **kwargs)
         self.target_world_direction = self.body.GetWorldVector((0,1))
+        self.fixture_in_front = None
 
     def _build(self, *args, **kwargs):
         Ship._build(self, *args, **kwargs)
@@ -440,12 +449,37 @@ class ShipObstacle(Ship, Obstacle):
             viewer.draw_polyline( [self.body.position, target_dir_p2], color=rgb(255, 0, 0), linewidth=1)
 
     def take_actions(self, fps):
-        look_ahead_lidar = LidarCallback(dont_report_type = [BodyType.TARGET], dont_report_object=[self])
-        look_ahead_lidar.p1 = self.body.position
-        look_ahead_lidar.p2 = self.body.GetWorldPoint((0, self.L2))
-        self.world.RayCast(look_ahead_lidar, look_ahead_lidar.p1, look_ahead_lidar.p2) # can still bump on side if barely going towards target.
-        if look_ahead_lidar.fraction < 1: # If something in front
+        # MAYBE do AABB query instead of lots of queries
+        #look_ahead_lidars = [LidarCallback(dont_report_type = [BodyType.TARGET], dont_report_object=[self]) for _ in range(5)]
+        #look_ahead_lidars[0].p1 = self.body.position
+#        look_ahead_lidars[0].p2 = self.body.GetWorldPoint((0, self.L2))
+#
+#        look_ahead_lidars[0].p1 = self.body.GetWorldPoint((-self.SHIP_WIDTH, -self.SHIP_HEIGHT / 2)) # lower left of ship (w half widht more margin
+#        look_ahead_lidars[0].p2 = self.body.GetWorldPoint((-self.SHIP_WIDTH, self.L2)) # upper left
+#        
+#        look_ahead_lidars[0].p1 = self.body.GetWorldPoint((+self.SHIP_WIDTH, -self.SHIP_HEIGHT / 2)) # lower left of ship (w half widht more margin
+#        look_ahead_lidars[0].p2 = self.body.GetWorldPoint((+self.SHIP_WIDTH, self.L2))
+#
+#        look_ahead_lidars[0].p1 = self.body.position
+#        look_ahead_lidars[0].p2 = self.body.GetWorldPoint((0, self.L2))
+#        look_ahead_lidars[0].p1 = self.body.position
+#        look_ahead_lidars[0].p2 = self.body.GetWorldPoint((0, self.L2))
+#        self.world.RayCast(look_ahead_lidar, look_ahead_lidar.p1, look_ahead_lidar.p2) # can still bump on side if barely going towards target.
+#        if look_ahead_lidar.fraction < 1: # If something in front
             #print("Something in front ! Gotta turn right !")
+        if not self.fixture_in_front:
+            fixture_in_front_def = b2FixtureDef(shape=b2PolygonShape(vertices=(
+                (-self.SHIP_WIDTH, -self.SHIP_HEIGHT / 2),
+                (+self.SHIP_WIDTH, -self.SHIP_HEIGHT / 2),
+                (+self.SHIP_WIDTH, self.L2),
+                (-self.SHIP_WIDTH, self.L2))), isSensor=True, userData={'touching_hard': [], 'touching_sensor': []})
+            self.fixture_in_front = self.body.CreateFixture(fixture_in_front_def, density=0)
+            #query = PlaceOccupied(ignore=[self], ignore_type=[BodyType.TARGET])
+        #aabb = fixture_in_front.GetAABB(0)
+        #self.world.QueryAABB(query, aabb)
+        touch_front =  set(self.fixture_in_front.userData['touching_hard'])
+        if any(x.userData.type != BodyType.TARGET and x != self for x in touch_front):
+            self.thrust(-1, fps) # slow down
             self.steer(1, fps) # steer to starboard as much as possible
             return
 
@@ -455,7 +489,6 @@ class ShipObstacle(Ship, Obstacle):
             if bearing <= math.pi / 2 and bearing >= -math.pi / 6: # Detected something on front starboard side
                 #print("Something on my right ! Gotta slow down and turn right")
                 #print("Bearing to it %f" % bearing)
-                self.thrust(-1, fps) # slow down
                 self.steer(1, fps) # go starboard
                 return
 
@@ -466,9 +499,10 @@ class ShipObstacle(Ship, Obstacle):
             #print("Gotta rectify")
             look_to_target_lidar = LidarCallback(dont_report_type = [BodyType.TARGET], dont_report_object=[self])
             look_to_target_lidar.p1 = self.body.position
-            look_to_target_lidar.p2 = self.body.GetWorldPoint((np.cos(angle_to_target_dir) * self.L2, np.sin(angle_to_target_dir) * self.L2))
+            look_to_target_lidar.p2 = self.body.GetWorldPoint((np.cos(angle_to_target_dir + math.pi/2) * self.L2, np.sin(angle_to_target_dir + math.pi/2) * self.L2)) 
             self.world.RayCast(look_to_target_lidar, look_to_target_lidar.p1, look_to_target_lidar.p2)
             if look_to_target_lidar.fraction == 1: # Nothing where we want to go
+                #print("Nothing in the way")
                 #print("Nothing in my pass mouahahahaha")
                 if angle_to_target_dir < 0 and angle_to_target_dir > -math.pi: # and self.thruster_angle >= 0:
                     #print("Guess I'll steer right")
@@ -476,6 +510,16 @@ class ShipObstacle(Ship, Obstacle):
                 else: # and self.thruster_angle <= 0:
                     #print("Ok let's steer left!")
                     self.steer(-1, fps) # Steer starboard
+            else:
+                #print("Something is in the way")
+                if angle_to_target_dir > 0 and self.thruster_angle < 0: # upper-left corner and turning in this direction
+                    #print("Can't turn left")
+                    self.steer(1, fps)
+                elif angle_to_target_dir > (-math.pi/2) and angle_to_target_dir < 0 and self.thruster_angle > 0: # upper-right and turning in this direction
+                    #print("Can't turn right")
+                    self.steer(-1, fps)
+
+
         else:
             #print("Straightening up of %f" % (-self.thruster_angle / (self.THRUSTER_MAX_ANGLE_STEP / fps)))
             self.steer(-self.thruster_angle / (self.THRUSTER_MAX_ANGLE_STEP / fps), fps) #straighten up
@@ -555,7 +599,7 @@ class Target(RoundObstacle):
             shape = circleShape(pos=(0,0), radius = self.radius),
             categoryBits=0x0010,
             maskBits=0x1111,
-            restitution=0.1, isSensor=True, userData={'touching': []}))
+            restitution=0.1, isSensor=True, userData={'touching_hard': [], 'touching_sensor': []}))
         self.body.userData = self
     
     def render(self, viewer, first_time=True, ship_view=None):
