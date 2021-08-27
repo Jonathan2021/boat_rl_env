@@ -5,35 +5,30 @@ from shipNavEnv.utils import int_round_iter
 import math
 
 class GridAdapter:
-    def __init__(self, left, bottom, right, top, down_scale=10, margin=1):#, margin=3):
-        #print(margin)
-        #print(margin / down_scale)
-        self.left = left # int(round(left))
-        self.bottom = bottom # int(round(bottom))
-        self.right = right # int(round(right))
-        self.top = top # int(round(top))
-        self.down_scale = down_scale
-        self.dim1 = int(round((top - bottom) / self.down_scale))
-        self.dim2 = int(round((right - left) / self.down_scale))
-        self.map = [[1 for _ in range(self.dim2)] for _ in range(self.dim1)]
-        #print("Orignal dim")
-        #print(self.dim1 * down_scale)
-        #print(self.dim2 * down_scale)
-        #print("Map dim")
-        #print(self.dim1)
-        #print(self.dim2)
-        self.algos = {'Astar': AStarFinder(diagonal_movement=DiagonalMovement.only_when_no_obstacle)}
+    """
+    Class to make a compressed grid from rocks and find a path to a target in it using a chosen algorithm.
+    """
+    def __init__(self, left, bottom, right, top, down_scale=10, margin=1):
+        self.left = left
+        self.bottom = bottom
+        self.right = right
+        self.top = top
+
+        self.down_scale = down_scale # How compressed to we want our grid to be ?
+        self.dim1 = int(round((top - bottom) / self.down_scale)) # Height
+        self.dim2 = int(round((right - left) / self.down_scale)) # Width
+        self.map = [[1 for _ in range(self.dim2)] for _ in range(self.dim1)] # Actual grid (matrix)
+        self.algos = {'Astar': AStarFinder(diagonal_movement=DiagonalMovement.only_when_no_obstacle)} # Can add different algos from the pathfinding library
         self.start = None
         self.end = None
         self.grid = None
         self.path = []
-        self.margin = margin
+        self.margin = margin # How safe we want to be (the higher the margin the larger the rock appears to be)
 
     def _add_circle(self, x0, y0, radius):
-        #print("New center")
-        #print((x0, y0))
-        #print("New Radius")
-        #print(radius)
+        """
+        Draw a circle in the grid at a given point and a given radius
+        """
         f = 1 - radius
         ddf_x = 1
         ddf_y = -2 * radius
@@ -62,11 +57,10 @@ class GridAdapter:
             self.map[self.safe_y(y0 - x)][self.safe_x(x0 - y)] = 0
     
     def add_rock(self, rock):
-        x, y = self.transform_coords_to_grid(*rock.body.position)
-        #print("Original pos")
-        #print(rock.body.position)
-        #print("Original Radius")
-        #print(rock.radius)
+        """ Add a Rock object to the grid """
+        x, y = self.transform_coords_to_grid(*rock.body.position) # Get grid coordinates
+
+        # Get transformed radius
         radius = (rock.radius + self.margin) / self.down_scale
         dround = radius - round(radius)
         if dround > 0 and dround < self.margin / (2.5*self.down_scale):
@@ -74,25 +68,33 @@ class GridAdapter:
         else:
             radius = math.ceil(radius)
 
-        self._add_circle(x, y, radius)
+        self._add_circle(x, y, radius) # Add the circle
 
     def add_rocks(self, rocks):
+        """ Add a list of rocks """
         for rock in rocks:
            self.add_rock(rock) 
 
     def safe_x(self, x):
+        """ Get x in the map bounds """
         return min(max(0, x), self.dim2 - 1)
 
     def safe_y(self, y):
+        """ Get y in map bounds """
         return min(max(y, 0), self.dim1 - 1)
 
     def transform_coords_to_grid(self, x, y):
+        """ Downscale coordinates from the original world to the grid """
         return self.safe_x(int(round((x - self.left) / self.down_scale))), self.safe_y(int(round((y - self.bottom) / self.down_scale)))
 
     def transform_coords_to_world(self, x, y):
+        """ Grid coordinates to original world coordinates """
         return self.down_scale*x + self.left, y*self.down_scale + self.bottom
 
     def find_path(self, start, end, algo='Astar'):
+        """
+        Find a path from start to end using a specified algorithm
+        """
         if not self.grid:
             self.grid = Grid(matrix=self.map)
         self.start = self.transform_coords_to_grid(*start)
@@ -100,8 +102,5 @@ class GridAdapter:
         start = self.grid.node(*self.start)
         end = self.grid.node(*self.end)
         finder = self.algos[algo]
-        #print(self.start)
-        #print(self.end)
         self.path, runs = finder.find_path(start, end, self.grid)
-        #print(self.grid.grid_str(path=self.path, start=start, end=end))
-        return list(map(lambda x : self.transform_coords_to_world(*x), self.path))
+        return list(map(lambda x : self.transform_coords_to_world(*x), self.path)) # Return path in original world coordinates
