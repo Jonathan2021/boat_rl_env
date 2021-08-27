@@ -76,6 +76,16 @@ The wanted behavior of the handwritten AI is the following:
     * If something coming / on starboard side. Turn right.
     * If nothing in the way and deviating from the angle it wants to follow: rectify trajectory to follow this angle.
 
+#  Training
+To log training do something like:
+
+`{ time ./train.sh 7 15 ppo 20 0 ; } &> logs/name_of_file` This will log the time as well as the outputs.
+
+To evaluate an agent use --no-render for it to be faster. Command should look something like this:
+
+`python enjoy.py --algo ppo --env ShipNav-v7 --folder logs --exp-id 93 --load-best -n 50000 --no-render`
+
+Every parameter is well explained in the framework read me and code so you shouldn't have too much trouble.
 
 # Questions you may ask yourself
 * ## Why do we have a scale sometimes ?
@@ -90,6 +100,5 @@ We use a hidden virtual display to render the state so that it doesn't appear on
 Helps the agent decipher the trajectories of obstacles while keeping the speeds and angular velocities at the time they were recorded, giving also information about the ships own trajectory). This gives info about the past and makes the state more compliant with the Markov property.
 * ## What is the use of the bumpers ?
 The idea came from the paper [Automatic ship collision avoidance using deep reinforcement learning with LSTM in continuous action spaces](https://link.springer.com/article/10.1007/s00773-020-00755-0). It is used for reward in the case of our agent and for writting the AI for ship obstacles. It can be considered as a safe zone around the ships.
-
 
 # THE TODO CONTAINS THINGS TO DO AS WELL AS IDEAS, TIPS, BIBLIO ETC.

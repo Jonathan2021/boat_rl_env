@@ -71,6 +71,7 @@
 * Several agents that interact, for example one for choosing optimal path, one to follow this path closely. Or one to control where to scan etc.
 * Model that automatically selects ships / obstacles to observe instead of using image
 * Better reward doesn't necessarily mean better agent. Make sure they mean the same. (maybe choose hyperparams based on best success rate instead etc.)
+* Add checkpoints while training (supported by SB3 zoo framework)
 
 # TIPS
 
