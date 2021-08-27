@@ -429,7 +429,7 @@ class ShipNavRocks(gym.Env):
         self.episode_reward += self.reward
             
         # Record additional info
-        info = {"is_success": self.is_success};
+        info = {"is_success": self.is_success}; # Useful to plot it in tensorboard
         mainShipPosEast = np.double(self.world.ship.body.position[0])
         mainShipPosNorth = np.double(self.world.ship.body.position[1])
         mainShipHeading = (self.world.ship.body.angle + np.pi) % (2 * np.pi) - np.pi
